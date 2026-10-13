@@ -46,6 +46,9 @@ From an elevated PowerShell:
 .\scripts\install.ps1 -NoBuild        # re-register the binaries already in the install directory
 ```
 
+If script execution is disabled (the Windows default), run it with a process-scoped bypass:
+`powershell -ExecutionPolicy Bypass -File .\scripts\install.ps1`.
+
 The script publishes a Release build and registers the service `DevPortal` with **Automatic (Delayed
 Start)**. If the service crashes, Windows restarts it after 5 s, 5 s and then 60 s. Running the script again
 upgrades the installation in place.

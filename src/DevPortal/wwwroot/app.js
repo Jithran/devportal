@@ -35,7 +35,7 @@
       else if (key.startsWith('data-')) node.setAttribute(key, value);
       else node[key] = value;
     }
-    for (const child of children.flat()) {
+    for (const child of children.flat(Infinity)) {
       if (child !== null && child !== undefined) node.append(child);
     }
     return node;
