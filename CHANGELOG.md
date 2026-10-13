@@ -5,6 +5,9 @@ and the project uses [Semantic Versioning](https://semver.org/). Release notes f
 
 ## [Unreleased]
 
+- **Fixed:** an update or restart could keep the portal unreachable for about 30 seconds while DevPortal waited for a hanging request to finish. It now stops within 2 seconds.
+- **Added:** an open portal page shows *DevPortal is restarting or stopped. Reconnecting…* while it cannot reach DevPortal, checks every second, and reloads by itself once DevPortal is back.
+
 ## v1.0.2 — 2026-10-13
 
 - **Fixed:** the instance list stayed empty when a local server sent an HTML response without an end and kept the connection open (JetBrains Toolbox does this). Each probe now stops at its timeout, including while reading the page title.

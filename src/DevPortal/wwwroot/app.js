@@ -5,6 +5,7 @@
   const updated = document.getElementById('updated');
   const dockerError = document.getElementById('docker-error');
   const summary = document.getElementById('summary');
+  const offline = document.getElementById('offline');
   let snapshot = null;
   let config = { refreshSeconds: 5, showSystemByDefault: false, theme: 'system' };
   let timer = null;
@@ -187,8 +188,11 @@
       dockerError.hidden = !snapshot.dockerError;
       dockerError.textContent = snapshot.dockerError || '';
       render();
+      // Back after a restart or update: reload so the page runs the assets of the version now serving it.
+      if (!offline.hidden) location.reload();
     } catch (error) {
-      updated.textContent = `Refresh failed: ${error.message}`;
+      if (error instanceof TypeError) offline.hidden = false;
+      else updated.textContent = `Refresh failed: ${error.message}`;
     }
   }
 
@@ -198,7 +202,7 @@
       await loadConfig();
       await load();
     }
-    timer = setTimeout(tick, config.refreshSeconds * 1000);
+    timer = setTimeout(tick, offline.hidden ? config.refreshSeconds * 1000 : 1000);
   }
 
   document.addEventListener('visibilitychange', () => { if (!document.hidden) tick(); });

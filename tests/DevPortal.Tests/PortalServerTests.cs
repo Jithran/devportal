@@ -65,6 +65,24 @@ public sealed class PortalServerTests : IDisposable
         Assert.Equal(HttpStatusCode.Forbidden, crossSiteResponse.StatusCode);
     }
 
+    [Fact]
+    public async Task Stop_does_not_wait_long_for_a_hanging_request()
+    {
+        var settings = new SettingsStore(Path.Combine(directory, "settings.json"));
+        settings.Save(new UserSettings { Port = FreePort() });
+        await using var server = new PortalServer(settings);
+        await server.StartAsync();
+        using var client = new TcpClient();
+        await client.ConnectAsync(IPAddress.Loopback, server.Port);
+        await client.GetStream().WriteAsync("GET /health HTTP/1.1\r\nHost: local"u8.ToArray());
+        await Task.Delay(200);
+
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+        await server.StopAsync();
+
+        Assert.InRange(stopwatch.Elapsed, TimeSpan.Zero, PortalServer.ShutdownTimeout + TimeSpan.FromSeconds(3));
+    }
+
     public void Dispose() => Directory.Delete(directory, recursive: true);
 
     private static int FreePort()
