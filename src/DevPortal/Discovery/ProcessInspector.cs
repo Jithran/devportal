@@ -27,7 +27,7 @@ public sealed class ProcessInspector(ILogger<ProcessInspector> logger)
         try
         {
             using var searcher = new ManagementObjectSearcher(
-                "SELECT ProcessId, Name, CommandLine, ExecutablePath, CreationDate FROM Win32_Process");
+                "SELECT ProcessId, Name, CommandLine, ExecutablePath, CreationDate, SessionId FROM Win32_Process");
             foreach (var item in searcher.Get().Cast<ManagementObject>())
             {
                 using (item)
@@ -42,7 +42,8 @@ public sealed class ProcessInspector(ILogger<ProcessInspector> logger)
                         item["CommandLine"] as string,
                         item["ExecutablePath"] as string,
                         null,
-                        ParseWmiDate(item["CreationDate"] as string));
+                        ParseWmiDate(item["CreationDate"] as string),
+                        item["SessionId"] is { } session ? Convert.ToInt32(session) : null);
                 }
             }
         }

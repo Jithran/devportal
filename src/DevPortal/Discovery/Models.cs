@@ -12,7 +12,8 @@ public sealed record ProcessDetails(
     string? CommandLine,
     string? ExecutablePath,
     string? WorkingDirectory,
-    DateTimeOffset? StartTime);
+    DateTimeOffset? StartTime,
+    int? SessionId = null);
 
 public sealed record GitInfo(
     string RepoName,

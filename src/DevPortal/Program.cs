@@ -1,49 +1,51 @@
-using System.Net;
-using System.Text.Json.Serialization;
-using DevPortal;
-using DevPortal.Discovery;
-using DevPortal.Security;
-using Microsoft.Extensions.Hosting.WindowsServices;
+using DevPortal.Desktop;
+using DevPortal.Server;
+using DevPortal.Settings;
+using DevPortal.Tray;
+using DevPortal.Updates;
+using Velopack;
 
-var builder = WebApplication.CreateBuilder(new WebApplicationOptions
+namespace DevPortal;
+
+public static class Program
 {
-    Args = args,
-    ContentRootPath = WindowsServiceHelpers.IsWindowsService() ? AppContext.BaseDirectory : default,
-});
+    [STAThread]
+    public static void Main()
+    {
+        AppLog.Enable(AppLog.DefaultPath);
+        var restartedByUpdate = false;
+        VelopackApp.Build()
+            .OnAfterInstallFastCallback(_ => new Autostart().Enable(Autostart.LaunchPath(Environment.ProcessPath!)))
+            .OnBeforeUninstallFastCallback(_ => new Autostart().Disable())
+            .OnRestarted(_ => restartedByUpdate = true)
+            .Run();
 
-builder.Host.UseWindowsService(service => service.ServiceName = "DevPortal");
+        using var instance = SingleInstance.TryAcquire(restartedByUpdate ? TimeSpan.FromSeconds(10) : TimeSpan.Zero);
+        if (instance is null)
+        {
+            SingleInstance.ActivateExisting();
+            return;
+        }
 
-var portal = builder.Configuration.GetSection(PortalOptions.Section).Get<PortalOptions>() ?? new PortalOptions();
-builder.WebHost.ConfigureKestrel(kestrel =>
-{
-    kestrel.AddServerHeader = false;
-    kestrel.Listen(IPAddress.Loopback, portal.Port);
-    kestrel.Listen(IPAddress.IPv6Loopback, portal.Port);
-});
+        Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);
+        Application.EnableVisualStyles();
+        Application.SetCompatibleTextRenderingDefault(false);
+        Application.ThreadException += (_, e) => AppLog.Error("Unhandled UI exception", e.Exception);
 
-builder.Services.Configure<PortalOptions>(builder.Configuration.GetSection(PortalOptions.Section));
-builder.Services.ConfigureHttpJsonOptions(json =>
-{
-    json.SerializerOptions.Converters.Add(new JsonStringEnumConverter(System.Text.Json.JsonNamingPolicy.CamelCase));
-    json.SerializerOptions.DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull;
-});
-builder.Services.AddSingleton(TimeProvider.System);
-builder.Services.AddSingleton<ProcessInspector>();
-builder.Services.AddSingleton<GitResolver>();
-builder.Services.AddSingleton<DockerClient>();
-builder.Services.AddSingleton<HttpProber>();
-builder.Services.AddSingleton<InstanceCatalog>();
+        var settings = new SettingsStore(SettingsStore.DefaultPath);
+        settings.Load();
+        var server = new PortalServer(settings);
 
-var app = builder.Build();
+        using var context = CreateTrayOnUiThread(server, settings);
+        instance.OnActivated(context.OpenWhenActivated);
+        Application.Run(context);
+        Task.Run(() => server.DisposeAsync().AsTask()).GetAwaiter().GetResult();
+    }
 
-app.UseMiddleware<LocalOnlyGuard>(portal.Port);
-
-app.UseDefaultFiles();
-app.UseStaticFiles();
-
-app.MapGet("/api/instances", async (InstanceCatalog catalog, bool? all, CancellationToken cancellationToken) =>
-    Results.Ok(await catalog.GetAsync(all ?? false, cancellationToken)));
-
-app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
-
-app.Run();
+    private static TrayApp CreateTrayOnUiThread(PortalServer server, SettingsStore settings)
+    {
+        if (SynchronizationContext.Current is not WindowsFormsSynchronizationContext)
+            SynchronizationContext.SetSynchronizationContext(new WindowsFormsSynchronizationContext());
+        return new TrayApp(server, settings, new UpdateService(), new Autostart());
+    }
+}

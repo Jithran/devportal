@@ -1,11 +1,13 @@
 (() => {
-  const REFRESH_MS = 5000;
   const root = document.getElementById('projects');
   const search = document.getElementById('search');
   const showSystem = document.getElementById('show-system');
   const updated = document.getElementById('updated');
   const dockerError = document.getElementById('docker-error');
+  const summary = document.getElementById('summary');
   let snapshot = null;
+  let config = { refreshSeconds: 5, showSystemByDefault: false, theme: 'system' };
+  let timer = null;
   const expanded = new Set();
 
   function toggleExpanded(name, open) {
@@ -13,15 +15,35 @@
     if (open) expanded.add(name); else expanded.delete(name);
   }
 
-  showSystem.checked = localStorage.getItem('devportal-system') === '1';
+  // A choice made on the page wins until the default in Settings changes; then the new default applies.
+  function choice(key, setting) {
+    try {
+      const stored = JSON.parse(localStorage.getItem(key));
+      if (stored && stored.basedOn === setting) return stored.value;
+    } catch { }
+    return null;
+  }
+
+  function remember(key, value, setting) {
+    localStorage.setItem(key, JSON.stringify({ value, basedOn: setting }));
+  }
+
+  function applyConfig() {
+    const osTheme = matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+    document.documentElement.dataset.theme = choice('devportal-theme', config.theme) ?? (config.theme === 'system' ? osTheme : config.theme);
+    showSystem.checked = choice('devportal-system', config.showSystemByDefault) ?? config.showSystemByDefault;
+    document.getElementById('version').textContent = `v${config.version}`;
+    document.getElementById('release-notes').href = `${config.repositoryUrl}/releases/tag/v${config.version}`;
+    document.getElementById('repository').href = config.repositoryUrl;
+  }
 
   document.getElementById('theme').addEventListener('click', () => {
     const next = document.documentElement.dataset.theme === 'light' ? 'dark' : 'light';
     document.documentElement.dataset.theme = next;
-    localStorage.setItem('devportal-theme', next);
+    remember('devportal-theme', next, config.theme);
   });
   showSystem.addEventListener('change', () => {
-    localStorage.setItem('devportal-system', showSystem.checked ? '1' : '0');
+    remember('devportal-system', showSystem.checked, config.showSystemByDefault);
     load();
   });
   search.addEventListener('input', render);
@@ -130,6 +152,30 @@
 
     root.replaceChildren(...(sections.length ? sections : [el('p', { class: 'muted', text: query ? 'No matches.' : 'Nothing is listening.' })]));
     root.setAttribute('aria-busy', 'false');
+    renderSummary();
+  }
+
+  function renderSummary() {
+    const instances = snapshot.projects.flatMap(p => p.versions.flatMap(v => v.instances));
+    const projects = snapshot.projects.filter(p => p.kind === 'repo' || p.kind === 'compose').length;
+    const containers = new Set(instances.filter(i => i.source === 'docker').map(i => i.containerName)).size;
+    const count = (n, word) => el('span', {}, el('strong', { text: String(n) }), ` ${word}${n === 1 ? '' : 's'}`);
+    summary.replaceChildren(
+      count(instances.length, 'instance'),
+      count(projects, 'project'),
+      count(containers, 'container'),
+      el('span', {}, el('span', { class: `dot ${snapshot.dockerError ? 'off' : 'on'}` }), snapshot.dockerError ? 'Docker unavailable' : 'Docker connected'));
+  }
+
+  async function loadConfig() {
+    try {
+      const response = await fetch('/api/config', { cache: 'no-store' });
+      if (!response.ok) return;
+      const next = await response.json();
+      const changed = JSON.stringify(next) !== JSON.stringify(config);
+      config = next;
+      if (changed) applyConfig();
+    } catch { }
   }
 
   async function load() {
@@ -146,7 +192,15 @@
     }
   }
 
-  load();
-  setInterval(() => { if (!document.hidden) load(); }, REFRESH_MS);
-  document.addEventListener('visibilitychange', () => { if (!document.hidden) load(); });
+  async function tick() {
+    clearTimeout(timer);
+    if (!document.hidden) {
+      await loadConfig();
+      await load();
+    }
+    timer = setTimeout(tick, config.refreshSeconds * 1000);
+  }
+
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) tick(); });
+  tick();
 })();

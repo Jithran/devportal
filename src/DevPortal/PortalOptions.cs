@@ -4,7 +4,6 @@ public sealed class PortalOptions
 {
     public const string Section = "DevPortal";
 
-    public int Port { get; set; } = 7800;
     public int CacheSeconds { get; set; } = 3;
     public int ProbeTimeoutMs { get; set; } = 1500;
     public int ProbeCacheSeconds { get; set; } = 30;

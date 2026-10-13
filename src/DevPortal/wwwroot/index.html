@@ -4,19 +4,27 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>DevPortal</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="icon" href="favicon.ico" sizes="any">
   <link rel="stylesheet" href="app.css">
   <script src="theme.js"></script>
 </head>
 <body>
   <header class="bar">
-    <h1>DevPortal</h1>
+    <a class="brand" href="/"><img src="favicon.svg" alt="" width="26" height="26"><span>DevPortal</span></a>
     <input id="search" type="search" placeholder="Search project, branch, port, title, process…" aria-label="Search" autofocus>
     <label class="toggle"><input id="show-system" type="checkbox"> Show system</label>
-    <button id="theme" type="button" aria-label="Toggle theme">Theme</button>
     <span id="updated" class="muted" aria-live="polite"></span>
+    <button id="theme" type="button" aria-label="Toggle theme">Theme</button>
   </header>
+  <div id="summary" class="summary muted" aria-live="polite"></div>
   <div id="docker-error" class="notice" hidden></div>
   <main id="projects" aria-busy="true"><p class="muted">Loading…</p></main>
+  <footer class="foot">
+    <span>DevPortal <strong id="version"></strong></span>
+    <span>localhost only · read-only</span>
+    <span class="links"><a id="release-notes" rel="noopener noreferrer" target="_blank">Release notes</a> · <a id="repository" rel="noopener noreferrer" target="_blank">GitHub</a></span>
+  </footer>
   <script src="app.js"></script>
 </body>
 </html>

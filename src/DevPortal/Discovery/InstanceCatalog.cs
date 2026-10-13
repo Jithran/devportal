@@ -159,8 +159,10 @@ public sealed class InstanceCatalog(
             : process.Name;
     }
 
+    /// <summary>Session 0 holds services only; as a normal user DevPortal cannot read their paths, but it can see the session.</summary>
     private bool IsSystem(ProcessDetails process) =>
         process.Pid is 0 or 4
+        || process.SessionId == 0
         || settings.SystemProcesses.Contains(process.Name, StringComparer.OrdinalIgnoreCase)
         || (process.ExecutablePath?.StartsWith(windowsDirectory, StringComparison.OrdinalIgnoreCase) ?? false);
 
