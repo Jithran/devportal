@@ -5,6 +5,8 @@ and the project uses [Semantic Versioning](https://semver.org/). Release notes f
 
 ## [Unreleased]
 
+## v1.0.3 — 2026-10-13
+
 - **Fixed:** an update or restart could keep the portal unreachable for about 30 seconds while DevPortal waited for a hanging request to finish. It now stops within 2 seconds.
 - **Added:** an open portal page shows *DevPortal is restarting or stopped. Reconnecting…* while it cannot reach DevPortal, checks every second, and reloads by itself once DevPortal is back.
 
