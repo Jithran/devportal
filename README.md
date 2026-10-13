@@ -158,7 +158,7 @@ straight from the `.git` files and does not run `git`:
 
 Compose containers are grouped by `com.docker.compose.project`. The version row shows the branch of the
 compose working directory. Host listeners on a port that Docker publishes are not shown twice, because the
-Docker backend owns those sockets.
+Docker backend owns those sockets. DevPortal leaves out its own port.
 
 The process type (dotnet/Kestrel, node, python, php, java) is detected from the process name and path. When
 a page has no `<title>`, the probe falls back to `og:title`/`application-name` and then to the first `<h1>`.

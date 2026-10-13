@@ -18,6 +18,7 @@ public sealed class InstanceCatalog(
     private readonly PortalOptions settings = options.Value;
     private readonly SemaphoreSlim gate = new(1, 1);
     private readonly string windowsDirectory = Environment.GetFolderPath(Environment.SpecialFolder.Windows);
+    private readonly int ownPid = Environment.ProcessId;
     private Snapshot? cached;
 
     public async Task<Snapshot> GetAsync(bool includeSystem, CancellationToken cancellationToken)
@@ -48,7 +49,7 @@ public sealed class InstanceCatalog(
         var dockerPorts = containers.SelectMany(c => c.Ports).Where(p => p.Protocol == "tcp").Select(p => p.HostPort).ToHashSet();
 
         var listeners = TcpTable.GetListeners()
-            .Where(l => !dockerPorts.Contains(l.Port) && !settings.HiddenPorts.Contains(l.Port))
+            .Where(l => l.Pid != ownPid && !dockerPorts.Contains(l.Port) && !settings.HiddenPorts.Contains(l.Port))
             .GroupBy(l => (l.Pid, l.Port))
             .ToList();
 

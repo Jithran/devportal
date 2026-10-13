@@ -5,6 +5,10 @@ and the project uses [Semantic Versioning](https://semver.org/). Release notes f
 
 ## [Unreleased]
 
+## v1.0.1 — 2026-10-13
+
+- **Fixed:** the portal no longer lists its own port under *Other processes*.
+
 ## v1.0.0 — 2026-10-13
 
 First release.
