@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DevPortal</title>
+  <link rel="stylesheet" href="app.css">
+  <script src="theme.js"></script>
+</head>
+<body>
+  <header class="bar">
+    <h1>DevPortal</h1>
+    <input id="search" type="search" placeholder="Search project, branch, port, title, process…" aria-label="Search" autofocus>
+    <label class="toggle"><input id="show-system" type="checkbox"> Show system</label>
+    <button id="theme" type="button" aria-label="Toggle theme">Theme</button>
+    <span id="updated" class="muted" aria-live="polite"></span>
+  </header>
+  <div id="docker-error" class="notice" hidden></div>
+  <main id="projects" aria-busy="true"><p class="muted">Loading…</p></main>
+  <script src="app.js"></script>
+</body>
+</html>
