@@ -82,12 +82,15 @@ public sealed partial class HttpProber : IDisposable
 
     private async Task<ProbeResult> TryAsync(string url, CancellationToken cancellationToken)
     {
+        // HttpClient.Timeout stops at the response headers; the body read needs its own deadline.
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        deadline.CancelAfter(options.ProbeTimeoutMs);
         try
         {
             using var request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.Accept.ParseAdd("text/html,*/*;q=0.8");
-            using var response = await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
-            var title = IsHtml(response) ? await ReadTitleAsync(response, cancellationToken) : null;
+            using var response = await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, deadline.Token);
+            var title = IsHtml(response) ? await ReadTitleAsync(response, deadline.Token) : null;
             var finalUrl = response.RequestMessage?.RequestUri?.ToString() ?? url;
             return new ProbeResult((int)response.StatusCode, title, finalUrl, null);
         }
@@ -106,8 +109,15 @@ public sealed partial class HttpProber : IDisposable
         var buffer = new byte[MaxBodyBytes];
         var total = 0;
         int read;
-        while (total < buffer.Length && (read = await stream.ReadAsync(buffer.AsMemory(total), cancellationToken)) > 0)
-            total += read;
+        try
+        {
+            while (total < buffer.Length && (read = await stream.ReadAsync(buffer.AsMemory(total), cancellationToken)) > 0)
+                total += read;
+        }
+        catch (OperationCanceledException)
+        {
+            // A keep-alive response without Content-Length never ends; the title is usually in what arrived.
+        }
 
         var html = Encoding.UTF8.GetString(buffer, 0, total);
         return new[] { TitlePattern(), MetaTitlePattern(), HeadingPattern() }

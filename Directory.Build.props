@@ -1,7 +1,7 @@
 <Project>
   <PropertyGroup>
     <!-- Dev default; the release workflow overrides it with -p:Version from the vX.Y.Z tag. -->
-    <Version>1.0.1</Version>
+    <Version>1.0.2</Version>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
   </PropertyGroup>
 </Project>

@@ -5,6 +5,10 @@ and the project uses [Semantic Versioning](https://semver.org/). Release notes f
 
 ## [Unreleased]
 
+## v1.0.2 — 2026-10-13
+
+- **Fixed:** the instance list stayed empty when a local server sent an HTML response without an end and kept the connection open (JetBrains Toolbox does this). Each probe now stops at its timeout, including while reading the page title.
+
 ## v1.0.1 — 2026-10-13
 
 - **Fixed:** the portal no longer lists its own port under *Other processes*.
