@@ -21,6 +21,8 @@ public sealed record InstanceSummary(int Instances, int Projects)
 /// </summary>
 public sealed class PortalServer(SettingsStore settings) : IAsyncDisposable
 {
+    internal static readonly TimeSpan ShutdownTimeout = TimeSpan.FromSeconds(2);
+
     private readonly SemaphoreSlim gate = new(1, 1);
     private WebApplication? app;
 
@@ -124,6 +126,8 @@ public sealed class PortalServer(SettingsStore settings) : IAsyncDisposable
         builder.Logging.ClearProviders();
         builder.Logging.AddProvider(new AppLogLoggerProvider());
 
+        // The default 30s drain kept the port closed that long before an update or restart whenever a request hung.
+        builder.WebHost.UseShutdownTimeout(ShutdownTimeout);
         builder.WebHost.ConfigureKestrel(kestrel =>
         {
             kestrel.AddServerHeader = false;
