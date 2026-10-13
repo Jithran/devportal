@@ -19,7 +19,7 @@ public sealed class HttpProberTests
         {
             using var client = await listener.AcceptTcpClientAsync();
             var stream = client.GetStream();
-            await stream.ReadAsync(new byte[4096]);
+            await stream.ReadAtLeastAsync(new byte[4096], 1);
             await stream.WriteAsync(Encoding.ASCII.GetBytes("HTTP/1.1 404 Not Found\r\ncontent-type: text/html\r\n\r\n<!doctype html><title>404 Not Found</title>"));
             await Task.Delay(TimeSpan.FromSeconds(30));
         });
