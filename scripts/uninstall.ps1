@@ -28,6 +28,11 @@ if ($service) {
     Write-Host "Service $serviceName is not installed."
 }
 
+if (Get-NetFirewallRule -Name 'DevPortal-Block-Inbound' -ErrorAction SilentlyContinue) {
+    Remove-NetFirewallRule -Name 'DevPortal-Block-Inbound'
+    Write-Host 'Firewall rule DevPortal-Block-Inbound removed.'
+}
+
 if (-not $KeepFiles -and (Test-Path $InstallDir)) {
     Remove-Item -Path $InstallDir -Recurse -Force
     Write-Host "Removed $InstallDir."

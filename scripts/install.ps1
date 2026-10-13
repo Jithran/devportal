@@ -57,6 +57,14 @@ $environment = (Get-ItemProperty -Path $serviceKey -Name Environment -ErrorActio
 $effectivePort = ($environment | Where-Object { $_ -like 'DevPortal__Port=*' } | ForEach-Object { ($_ -split '=', 2)[1] }) | Select-Object -First 1
 if (-not $effectivePort) { $effectivePort = 7800 }
 
+# Belt and braces next to the loopback-only bind: never an allow rule, always an explicit inbound block.
+# Loopback traffic is exempt from Windows Firewall filtering, so local access keeps working.
+$firewallRule = 'DevPortal-Block-Inbound'
+Remove-NetFirewallRule -Name $firewallRule -ErrorAction SilentlyContinue
+New-NetFirewallRule -Name $firewallRule -DisplayName "DevPortal - block inbound TCP $effectivePort" `
+    -Description 'DevPortal is local-only; blocks any inbound connection to its port from other hosts.' `
+    -Direction Inbound -Action Block -Protocol TCP -LocalPort $effectivePort -Profile Any | Out-Null
+
 Start-Service -Name $serviceName
 
 $url = "http://localhost:$effectivePort"

@@ -1,6 +1,8 @@
+using System.Net;
 using System.Text.Json.Serialization;
 using DevPortal;
 using DevPortal.Discovery;
+using DevPortal.Security;
 using Microsoft.Extensions.Hosting.WindowsServices;
 
 var builder = WebApplication.CreateBuilder(new WebApplicationOptions
@@ -12,7 +14,12 @@ var builder = WebApplication.CreateBuilder(new WebApplicationOptions
 builder.Host.UseWindowsService(service => service.ServiceName = "DevPortal");
 
 var portal = builder.Configuration.GetSection(PortalOptions.Section).Get<PortalOptions>() ?? new PortalOptions();
-builder.WebHost.ConfigureKestrel(kestrel => kestrel.ListenLocalhost(portal.Port));
+builder.WebHost.ConfigureKestrel(kestrel =>
+{
+    kestrel.AddServerHeader = false;
+    kestrel.Listen(IPAddress.Loopback, portal.Port);
+    kestrel.Listen(IPAddress.IPv6Loopback, portal.Port);
+});
 
 builder.Services.Configure<PortalOptions>(builder.Configuration.GetSection(PortalOptions.Section));
 builder.Services.ConfigureHttpJsonOptions(json =>
@@ -29,13 +36,7 @@ builder.Services.AddSingleton<InstanceCatalog>();
 
 var app = builder.Build();
 
-app.Use(async (context, next) =>
-{
-    context.Response.Headers.XContentTypeOptions = "nosniff";
-    context.Response.Headers.XFrameOptions = "DENY";
-    context.Response.Headers.ContentSecurityPolicy = "default-src 'self'; img-src 'self' data:; frame-ancestors 'none'";
-    await next();
-});
+app.UseMiddleware<LocalOnlyGuard>(portal.Port);
 
 app.UseDefaultFiles();
 app.UseStaticFiles();

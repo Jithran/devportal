@@ -80,8 +80,13 @@ internal static partial class CommandLine
             .ToList();
     }
 
+    /// <summary>
+    /// Masks secrets before a command line leaves the process. Errs on the side of over-masking;
+    /// the raw command line is never exposed.
+    /// </summary>
     public static string Redact(string commandLine) =>
-        SecretPattern().Replace(commandLine, match => match.Groups["key"].Value + "***");
+        new[] { UrlCredentialPattern(), BearerPattern(), SecretFlagPattern(), SecretAssignmentPattern() }
+            .Aggregate(commandLine, (text, pattern) => pattern.Replace(text, match => match.Groups["keep"].Value + "***"));
 
     private static bool LooksLikePath(string token) =>
         !token.Contains("://")
@@ -101,6 +106,17 @@ internal static partial class CommandLine
         }
     }
 
-    [GeneratedRegex(@"(?<key>(password|passwd|pwd|secret|token|apikey|api[-_]key)\s*[=:]\s*)[^\s;""']+", RegexOptions.IgnoreCase)]
-    private static partial Regex SecretPattern();
+    private const string SecretWord = @"(?:password|passwd|pwd|secret|token|api[-_]?key|access[-_]?key|private[-_]?key|credential|auth)";
+
+    [GeneratedRegex(@"(?<keep>[a-z][a-z0-9+.-]*://[^\s:/@]+:)[^\s@/]+(?=@)", RegexOptions.IgnoreCase)]
+    private static partial Regex UrlCredentialPattern();
+
+    [GeneratedRegex(@"(?<keep>\b(?:Bearer|Basic)\s+)[A-Za-z0-9._~+/=-]+", RegexOptions.IgnoreCase)]
+    private static partial Regex BearerPattern();
+
+    [GeneratedRegex(@"(?<keep>(?<![\w-])--?[\w-]*" + SecretWord + @"[\w-]*\s+)(?!-)(?:""[^""]*""|'[^']*'|[^\s;&]+)", RegexOptions.IgnoreCase)]
+    private static partial Regex SecretFlagPattern();
+
+    [GeneratedRegex(@"(?<keep>[\w.-]*" + SecretWord + @"[\w.-]*\s*[=:]\s*)(?:""[^""]*""|'[^']*'|[^\s;&""']+)", RegexOptions.IgnoreCase)]
+    private static partial Regex SecretAssignmentPattern();
 }

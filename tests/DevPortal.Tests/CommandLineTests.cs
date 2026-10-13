@@ -13,4 +13,16 @@ public sealed class CommandLineTests
     {
         Assert.Equal(expected, CommandLine.CandidatePaths(commandLine, workingDirectory)[0]);
     }
+
+    [Theory]
+    [InlineData(@"app.exe --ConnectionStrings:Db ""Server=.;User Id=sa;Password=S3cr3t!;""", @"app.exe --ConnectionStrings:Db ""Server=.;User Id=sa;Password=***;""")]
+    [InlineData(@"cmd /c set DB_PWD=hunter2&& set API_TOKEN=abc123&& dotnet run", @"cmd /c set DB_PWD=***&& set API_TOKEN=***&& dotnet run")]
+    [InlineData(@"node server.js --api-key k-123 --port 3000", @"node server.js --api-key *** --port 3000")]
+    [InlineData(@"curl -H ""Authorization: Bearer eyJhbGciOi.payload.sig"" x", @"curl -H ""Authorization: *** ***"" x")]
+    [InlineData(@"worker --db mongodb://admin:pa55@localhost:27017/app --client_secret=xyz", @"worker --db mongodb://admin:***@localhost:27017/app --client_secret=***")]
+    [InlineData(@"""C:\src\Shop\bin\Debug\net10.0\Shop.exe"" --urls http://localhost:5000", @"""C:\src\Shop\bin\Debug\net10.0\Shop.exe"" --urls http://localhost:5000")]
+    public void Secrets_in_command_lines_are_masked(string commandLine, string expected)
+    {
+        Assert.Equal(expected, CommandLine.Redact(commandLine));
+    }
 }
