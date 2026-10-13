@@ -1,0 +1,72 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*.*.*']
+
+permissions:
+  contents: write
+
+env:
+  DOTNET_VERSION: '10.0.x'
+  # Keep in step with the Velopack NuGet package in src/DevPortal/DevPortal.csproj.
+  VPK_VERSION: '1.2.161'
+  # Must match UpdateService.Channel, or installed apps never see the release.
+  CHANNEL: win-x64-stable
+
+jobs:
+  release:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Version from tag
+        run: |
+          $version = '${{ github.ref_name }}'.TrimStart('v')
+          if ($version -notmatch '^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$') { throw "Tag ${{ github.ref_name }} is not vX.Y.Z" }
+          "VERSION=$version" >> $env:GITHUB_ENV
+
+      - name: Release notes from CHANGELOG
+        run: ./scripts/Get-ChangelogSection.ps1 -Path CHANGELOG.md -Version $env:VERSION | Set-Content release-notes.md
+
+      - name: Test
+        run: dotnet test -c Release
+
+      - name: Publish
+        run: dotnet publish src/DevPortal/DevPortal.csproj -c Release -r win-x64 --self-contained true -p:Version=$env:VERSION -p:DebugType=none -o publish
+
+      - name: Install vpk
+        run: dotnet tool install -g vpk --version $env:VPK_VERSION
+
+      # The previous release lets vpk build a delta package. There is none before the first release.
+      - name: Download previous release
+        continue-on-error: true
+        run: vpk download github --repoUrl https://github.com/${{ github.repository }} --channel $env:CHANNEL --outputDir dist
+
+      - name: Pack
+        run: >
+          vpk pack --packId DevPortal --packTitle DevPortal --packAuthors Jithran
+          --packVersion $env:VERSION --packDir publish --mainExe DevPortal.exe
+          --icon src/DevPortal/Assets/devportal.ico --channel $env:CHANNEL
+          --releaseNotes release-notes.md --outputDir dist
+
+      - name: Check assets
+        run: |
+          foreach ($file in "releases.$env:CHANNEL.json", "DevPortal-$env:CHANNEL-Setup.exe", "DevPortal-$env:VERSION-$env:CHANNEL-full.nupkg") {
+            if (-not (Test-Path "dist/$file")) { throw "Missing dist/$file" }
+          }
+          Get-ChildItem dist | Format-Table Name, Length
+
+      - uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: DevPortal v${{ env.VERSION }}
+          body_path: release-notes.md
+          files: dist/*
