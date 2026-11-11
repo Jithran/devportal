@@ -5,6 +5,8 @@ and the project uses [Semantic Versioning](https://semver.org/). Release notes f
 
 ## [Unreleased]
 
+- **Changed:** the portal page has a new layout: a summary strip (health, projects, web endpoints, containers, listening ports, last scan), tabs for *Projects* and *All ports*, and status and type filters next to search (DP-2). The *All ports* tab is a placeholder for now.
+
 ## v1.0.3 — 2026-10-13
 
 - **Fixed:** an update or restart could keep the portal unreachable for about 30 seconds while DevPortal waited for a hanging request to finish. It now stops within 2 seconds.

@@ -13,19 +13,34 @@
   <header class="bar">
     <a class="brand" href="/"><img src="favicon.svg" alt="" width="26" height="26"><span>DevPortal</span></a>
     <input id="search" type="search" placeholder="Search project, branch, port, title, process…" aria-label="Search" autofocus>
-    <label class="toggle"><input id="show-system" type="checkbox"> Show system</label>
-    <span id="updated" class="muted" aria-live="polite"></span>
-    <button id="theme" type="button" aria-label="Toggle theme">Theme</button>
+    <div class="right">
+      <span class="scan muted"><span class="pulse"></span><span id="updated"></span></span>
+      <button id="theme" type="button" aria-label="Toggle theme">Theme</button>
+    </div>
   </header>
-  <div id="summary" class="summary muted" aria-live="polite"></div>
   <div id="offline" class="notice busy" role="status" hidden>DevPortal is restarting or stopped. Reconnecting…</div>
   <div id="docker-error" class="notice" hidden></div>
-  <main id="projects" aria-busy="true"><p class="muted">Loading…</p></main>
+  <main class="wrap">
+    <section id="kpis" class="kpis" aria-label="Summary"></section>
+    <div class="toolbar">
+      <div class="tabs" role="tablist" aria-label="View">
+        <button id="tab-projects" type="button" role="tab" aria-controls="projects" aria-selected="true">Projects <span id="count-projects" class="count"></span></button>
+        <button id="tab-ports" type="button" role="tab" aria-controls="view-ports" aria-selected="false" tabindex="-1">All ports <span id="count-ports" class="count"></span></button>
+      </div>
+      <div id="filters" class="filters"></div>
+      <label class="chip system"><input id="show-system" type="checkbox"> Show system</label>
+    </div>
+    <div id="projects" role="tabpanel" aria-labelledby="tab-projects" aria-busy="true"><p class="muted">Loading…</p></div>
+    <div id="view-ports" role="tabpanel" aria-labelledby="tab-ports" hidden>
+      <div class="card empty">The all-ports view is coming soon.</div>
+    </div>
+  </main>
   <footer class="foot">
     <span>DevPortal <strong id="version"></strong></span>
     <span>localhost only · read-only</span>
     <span class="links"><a id="release-notes" rel="noopener noreferrer" target="_blank">Release notes</a> · <a id="repository" rel="noopener noreferrer" target="_blank">GitHub</a></span>
   </footer>
+  <script src="stats.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
