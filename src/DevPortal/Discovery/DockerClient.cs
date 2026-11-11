@@ -4,9 +4,12 @@ using Microsoft.Extensions.Options;
 
 namespace DevPortal.Discovery;
 
+public enum ContainerAction { Stop, Restart }
+
 public sealed class DockerClient : IDisposable
 {
     private readonly HttpClient http;
+    private readonly HttpClient actions;
 
     public DockerClient(IOptions<PortalOptions> options)
     {
@@ -28,7 +31,9 @@ public sealed class DockerClient : IDisposable
                 }
             },
         };
-        http = new HttpClient(handler) { BaseAddress = new Uri("http://docker/"), Timeout = TimeSpan.FromSeconds(3) };
+        http = new HttpClient(handler, disposeHandler: false) { BaseAddress = new Uri("http://docker/"), Timeout = TimeSpan.FromSeconds(3) };
+        // A stop waits up to the container's grace period (10s by default) before the engine kills it.
+        actions = new HttpClient(handler) { BaseAddress = http.BaseAddress, Timeout = TimeSpan.FromSeconds(30) };
     }
 
     public async Task<(IReadOnlyList<ContainerInfo> Containers, string? Error)> ListRunningAsync(CancellationToken cancellationToken)
@@ -42,6 +47,20 @@ public sealed class DockerClient : IDisposable
         catch (Exception ex) when (ex is HttpRequestException or IOException or TimeoutException or TaskCanceledException or UnauthorizedAccessException or JsonException)
         {
             return ([], $"Docker unavailable: {ex.GetBaseException().Message}");
+        }
+    }
+
+    /// <summary>Null on success, otherwise the reason. 304 means the container was already in that state, which is what was asked.</summary>
+    public async Task<string?> ActAsync(string id, ContainerAction action, CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var response = await actions.PostAsync($"containers/{id}/{action.ToString().ToLowerInvariant()}", null, cancellationToken);
+            return response.IsSuccessStatusCode || response.StatusCode == System.Net.HttpStatusCode.NotModified ? null : $"Docker answered {(int)response.StatusCode}";
+        }
+        catch (Exception ex) when (ex is HttpRequestException or IOException or TimeoutException or TaskCanceledException or UnauthorizedAccessException)
+        {
+            return $"Docker unavailable: {ex.GetBaseException().Message}";
         }
     }
 
@@ -124,5 +143,9 @@ public sealed class DockerClient : IDisposable
             ports);
     }
 
-    public void Dispose() => http.Dispose();
+    public void Dispose()
+    {
+        http.Dispose();
+        actions.Dispose();
+    }
 }

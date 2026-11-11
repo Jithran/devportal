@@ -56,17 +56,26 @@
   </main>
   <footer class="foot">
     <span>DevPortal <strong id="version"></strong></span>
-    <span>localhost only · read-only</span>
+    <span id="mode">localhost only · read-only</span>
     <span class="links"><a id="release-notes" rel="noopener noreferrer" target="_blank">Release notes</a> · <a id="repository" rel="noopener noreferrer" target="_blank">GitHub</a></span>
   </footer>
   <div id="scrim" class="scrim" hidden></div>
+  <dialog id="confirm" class="confirm" aria-labelledby="confirm-title" aria-describedby="confirm-text">
+    <h2 id="confirm-title"></h2>
+    <p id="confirm-text" class="muted"></p>
+    <div class="btns">
+      <button id="confirm-cancel" type="button" autofocus>Cancel</button>
+      <button id="confirm-ok" type="button" class="danger"></button>
+    </div>
+  </dialog>
   <aside id="drawer" class="drawer" role="dialog" aria-modal="true" aria-labelledby="drawer-title" tabindex="-1" hidden>
     <div class="dh">
       <div class="top">
         <div id="drawer-head" class="dhead"></div>
         <button id="drawer-close" type="button" aria-label="Close details">✕</button>
       </div>
-      <div id="drawer-actions" class="btns" data-slot="actions"></div>
+      <div id="drawer-actions" class="acts" data-slot="actions"></div>
+      <div id="action-note" class="act-note" role="status"></div>
     </div>
     <div id="drawer-body" class="db"></div>
   </aside>

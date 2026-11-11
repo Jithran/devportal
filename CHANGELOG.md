@@ -5,6 +5,8 @@ and the project uses [Semantic Versioning](https://semver.org/). Release notes f
 
 ## [Unreleased]
 
+- **Added:** optional container actions, off by default (*Settings… → Allow stopping and restarting Docker containers*). The project drawer then shows *Restart* and *Stop* per Docker container (never host processes), each behind a confirmation dialog and logged as an audit line. The server enforces the setting, a same-origin check, a per-run token, the last scan and a rate limit (DP-9).
+
 - **Added:** optional page previews on web endpoint cards, off by default (*Settings… → Show page previews*). A background loop screenshots healthy endpoints on localhost with an installed Edge or Chrome in headless mode, with a throwaway profile and every other host blocked, and keeps small thumbnails on this computer for 10 minutes. Without a screenshot the card shows the favicon and page title. Turning it off deletes the cache (DP-8).
 
 - **Added:** a detail drawer for one project, opened with *Details* on a project row, from a *Needs attention* item or from the project name in *All ports*. It shows CPU, memory and response-time charts, what needs attention for that project, its endpoints, ports, processes and containers, plus PID, start time and the masked command line with a copy button. It stays open and current across scans, shows a "Gone" state if the project stops, can be closed with Esc, keeps keyboard focus inside while open, and is linkable through `#project=` so a refresh keeps it open (DP-11).

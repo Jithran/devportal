@@ -70,8 +70,8 @@ already running.
 
 ## Settings
 
-*Settings…* opens a small native dialog. It is deliberately not a web page, so the HTTP side stays read-only:
-there is nothing on the portal that can change anything.
+*Settings…* opens a small native dialog. It is deliberately not a web page, so settings cannot be changed over HTTP. The portal is read-only
+unless you turn on *Allow stopping and restarting Docker containers* (off by default).
 
 | Setting | Default | Notes |
 |---|---|---|
@@ -81,6 +81,7 @@ there is nothing on the portal that can change anything.
 | Show system listeners by default | off | The default for the page's *Show system* checkbox |
 | Check for updates automatically | on | Checks at startup and every 6 hours. It notifies you and never installs anything on its own |
 | Show page previews | off | Screenshots healthy web endpoints on localhost with an installed Edge or Chrome (headless, throwaway profile, no cookies, other hosts blocked), at most four a minute, one at a time. Screenshots and favicons are kept in `%LOCALAPPDATA%\DevPortal\previews` (10 minute refresh, 50 files / 20 MB cap), are never sent anywhere and are deleted when you turn this off. Without a browser it shows the favicon and page title |
+| Allow stopping and restarting Docker containers | off | Adds *Restart* and *Stop* for the containers of a project in its detail drawer, never for host processes. Each action asks for confirmation naming the container and writes an audit line (who, what, result) to the log. Only this computer's page can send it: the request needs a matching Origin and a per-run token, the container must be in the last scan, and at most 5 actions run per 30 s |
 
 Settings are stored per user in `%LOCALAPPDATA%\DevPortal\settings.json`. Velopack updates replace only the
 `current` folder below it, so the file is kept across updates. A file that cannot be read or has values out of

@@ -2,11 +2,12 @@ namespace DevPortal.Security;
 
 /// <summary>
 /// Defence in depth on top of the loopback-only bind:
-/// a Host allowlist against DNS rebinding, same-origin enforcement on the API, read-only methods, and security headers.
+/// a Host allowlist against DNS rebinding, same-origin enforcement on the API, read-only methods (except POST to the opt-in container actions, which must carry an allowed Origin), and security headers.
 /// </summary>
 public sealed class LocalOnlyGuard(RequestDelegate next, int port)
 {
     private static readonly string[] LoopbackHosts = ["localhost", "127.0.0.1", "[::1]"];
+    private const string ActionPrefix = "/api/containers";
     private static readonly string[] ReadOnlyMethods = [HttpMethods.Get, HttpMethods.Head];
     private static readonly string[] TrustedFetchSites = ["same-origin", "none"];
 
@@ -21,8 +22,13 @@ public sealed class LocalOnlyGuard(RequestDelegate next, int port)
         if (!allowedHosts.Contains(request.Host.Value ?? ""))
             return Reject(context, StatusCodes.Status403Forbidden, "Host not allowed");
 
-        if (!ReadOnlyMethods.Contains(request.Method))
+        var isAction = request.Method == HttpMethods.Post && request.Path.StartsWithSegments(ActionPrefix);
+        if (!isAction && !ReadOnlyMethods.Contains(request.Method))
             return Reject(context, StatusCodes.Status405MethodNotAllowed, "Read-only");
+
+        // A POST is never sent by navigation, so unlike a GET it must name its origin.
+        if (isAction && !allowedOrigins.Contains(request.Headers.Origin.ToString()))
+            return Reject(context, StatusCodes.Status403Forbidden, "Origin not allowed");
 
         if (request.Path.StartsWithSegments("/api") && IsCrossSite(request))
             return Reject(context, StatusCodes.Status403Forbidden, "Cross-site request rejected");

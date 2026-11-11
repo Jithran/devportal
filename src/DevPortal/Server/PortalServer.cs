@@ -17,7 +17,7 @@ public sealed record InstanceSummary(int Instances, int Projects)
 }
 
 /// <summary>
-/// Hosts the read-only web portal inside the tray process. Start, stop and restart are in-process calls from the tray;
+/// Hosts the web portal inside the tray process; read-only apart from the opt-in container actions. Start, stop and restart are in-process calls from the tray;
 /// none of them is reachable over HTTP.
 /// </summary>
 public sealed class PortalServer(SettingsStore settings) : IAsyncDisposable
@@ -151,6 +151,8 @@ public sealed class PortalServer(SettingsStore settings) : IAsyncDisposable
         builder.Services.AddSingleton<ResourceSampler>();
         builder.Services.AddSingleton<HttpProber>();
         builder.Services.AddSingleton<InstanceCatalog>();
+        builder.Services.AddSingleton(services => new ContainerActions(
+            settings, () => services.GetRequiredService<InstanceCatalog>().Latest, services.GetRequiredService<DockerClient>().ActAsync, TimeProvider.System));
         builder.Services.AddSingleton(new PreviewCache(Path.Combine(Path.GetDirectoryName(settings.FilePath)!, "previews"), TimeProvider.System));
         builder.Services.AddHostedService<PreviewService>();
 
@@ -164,10 +166,10 @@ public sealed class PortalServer(SettingsStore settings) : IAsyncDisposable
         app.MapGet("/api/instances", async (InstanceCatalog catalog, bool? all, CancellationToken cancellationToken) =>
             Results.Ok(await catalog.GetAsync(all ?? false, cancellationToken)));
 
-        app.MapGet("/api/config", (SettingsStore store) =>
+        app.MapGet("/api/config", (SettingsStore store, ContainerActions actions) =>
         {
             var current = store.Current;
-            return Results.Ok(new PortalConfig(AppInfo.Version, AppInfo.RepositoryUrl, current.RefreshSeconds, current.ShowSystemByDefault, current.Theme, current.ScreenshotsEnabled));
+            return Results.Ok(new PortalConfig(AppInfo.Version, AppInfo.RepositoryUrl, current.RefreshSeconds, current.ShowSystemByDefault, current.Theme, current.ScreenshotsEnabled, current.ContainerActionsEnabled, current.ContainerActionsEnabled ? actions.Token : null));
         });
 
         // Serves only what the background loop already captured, and only for a port in the last scan: never a capture on request.
@@ -175,6 +177,10 @@ public sealed class PortalServer(SettingsStore settings) : IAsyncDisposable
             Preview(port, response, PreviewService.Screenshot, "image/png", Previewable(store, catalog), cache));
         app.MapGet("/api/preview/{port:int}/icon", (int port, HttpResponse response, SettingsStore store, InstanceCatalog catalog, PreviewCache cache) =>
             Preview(port, response, PreviewService.Icon, "image/x-icon", Previewable(store, catalog), cache));
+
+        app.MapPost("/api/containers/{id:regex(^[0-9a-f]{{12}}$)}/{action:regex(^(stop|restart)$)}", (string id, string action, HttpContext context, ContainerActions actions) =>
+            actions.HandleAsync(id, action, context.Request.Headers["X-DevPortal-Token"].ToString(),
+                $"{Environment.UserName}@{context.Connection.RemoteIpAddress}:{context.Connection.RemotePort}", context.RequestAborted));
 
         app.MapGet("/health", () => Results.Ok(new { status = "ok", version = AppInfo.Version }));
 
@@ -204,5 +210,5 @@ public sealed class PortalServer(SettingsStore settings) : IAsyncDisposable
         }
     }
 
-    private sealed record PortalConfig(string Version, string RepositoryUrl, int RefreshSeconds, bool ShowSystemByDefault, ThemePreference Theme, bool ScreenshotsEnabled);
+    private sealed record PortalConfig(string Version, string RepositoryUrl, int RefreshSeconds, bool ShowSystemByDefault, ThemePreference Theme, bool ScreenshotsEnabled, bool ContainerActionsEnabled, string? ActionToken);
 }

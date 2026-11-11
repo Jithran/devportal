@@ -67,6 +67,7 @@ public sealed record Instance
     public IReadOnlyList<double> CpuHistory { get; init; } = [];
     public IReadOnlyList<long> MemoryHistory { get; init; } = [];
     public bool IsSystem { get; init; }
+    public string? ContainerId { get; init; }
     public string? ContainerName { get; init; }
     public string? Image { get; init; }
     public string? ContainerStatus { get; init; }
