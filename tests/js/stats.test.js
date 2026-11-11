@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { classify, summarize } = require('../../src/DevPortal/wwwroot/stats.js');
+const { classify, summarize, projectStatus, primaryVersion } = require('../../src/DevPortal/wwwroot/stats.js');
 
 const host = (port, extra = {}) => ({ source: 'host', kind: 'node', port, addresses: ['127.0.0.1'], ...extra });
 const docker = (port, name, extra = {}) => ({ source: 'docker', kind: 'docker', port, containerName: name, addresses: [`${port}->80/tcp`], ...extra });
@@ -35,4 +35,16 @@ test('summarize: an empty snapshot is idle', () => {
   assert.equal(s.verdict, 'idle');
   assert.equal(s.projects.running, 0);
   assert.deepEqual(s.web, { up: 0, total: 0 });
+});
+
+test('projectStatus: running, degraded on a 5xx, stopped without instances', () => {
+  assert.equal(projectStatus(project('a', 'repo', [host(1, { statusCode: 200 }), host(2, { probeError: 'timeout' })])), 'running');
+  assert.equal(projectStatus(project('a', 'repo', [host(1, { statusCode: 200 }), host(2, { statusCode: 502 })])), 'degraded');
+  assert.equal(projectStatus(project('a', 'repo', [])), 'stopped');
+});
+
+test('primaryVersion: the most recently started version wins', () => {
+  const version = (label, startTime) => ({ label, instances: [host(1, { startTime })] });
+  const p = { name: 'a', kind: 'repo', versions: [version('main', '2026-11-11T08:00:00Z'), version('feature', '2026-11-11T09:30:00Z'), version('old', '2026-11-10T09:30:00Z')] };
+  assert.equal(primaryVersion(p).label, 'feature');
 });

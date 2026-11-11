@@ -60,6 +60,7 @@ public sealed record Instance
     public string? ContainerName { get; init; }
     public string? Image { get; init; }
     public string? ContainerStatus { get; init; }
+    public string? ComposeProject { get; init; }
     public string? ComposeService { get; init; }
 }
 
