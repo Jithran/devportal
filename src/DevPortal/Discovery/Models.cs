@@ -60,6 +60,12 @@ public sealed record Instance
 
     /// <summary>Oldest first; null is a probe that got no HTTP response. Empty when nothing ever answered.</summary>
     public IReadOnlyList<double?> ResponseHistory { get; init; } = [];
+
+    /// <summary>Of the listening process or the container as a whole, so every port of one owner repeats it. Percent of one core.</summary>
+    public double? CpuPercent { get; init; }
+    public long? MemoryBytes { get; init; }
+    public IReadOnlyList<double> CpuHistory { get; init; } = [];
+    public IReadOnlyList<long> MemoryHistory { get; init; } = [];
     public bool IsSystem { get; init; }
     public string? ContainerName { get; init; }
     public string? Image { get; init; }

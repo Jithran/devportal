@@ -60,7 +60,24 @@
     };
   }
 
-  const api = { classify, summarize, projectStatus, primaryVersion };
+  // Every port of a process or container repeats that owner's CPU and memory, so each owner counts once.
+  function owners(instances) {
+    const byKey = new Map();
+    for (const instance of instances) {
+      const key = instance.source === 'docker' ? `container ${instance.containerName}` : `pid ${instance.pid}`;
+      if (!byKey.has(key)) byKey.set(key, instance);
+    }
+    return [...byKey.values()];
+  }
+
+  // A total stays null until some owner has a reading, so the page shows a dash instead of a false 0.
+  function resourceTotals(instances) {
+    const list = owners(instances);
+    const total = field => list.some(i => i[field] != null) ? list.reduce((sum, i) => sum + (i[field] ?? 0), 0) : null;
+    return { cpu: total('cpuPercent'), memory: total('memoryBytes'), owners: list };
+  }
+
+  const api = { classify, summarize, projectStatus, primaryVersion, owners, resourceTotals };
   globalThis.DevPortalStats = api;
   if (typeof module !== 'undefined') module.exports = api;
 })();

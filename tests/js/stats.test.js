@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { classify, summarize, projectStatus, primaryVersion } = require('../../src/DevPortal/wwwroot/stats.js');
+const { classify, summarize, projectStatus, primaryVersion, owners, resourceTotals } = require('../../src/DevPortal/wwwroot/stats.js');
 
 const host = (port, extra = {}) => ({ source: 'host', kind: 'node', port, addresses: ['127.0.0.1'], ...extra });
 const docker = (port, name, extra = {}) => ({ source: 'docker', kind: 'docker', port, containerName: name, addresses: [`${port}->80/tcp`], ...extra });
@@ -47,4 +47,18 @@ test('primaryVersion: the most recently started version wins', () => {
   const version = (label, startTime) => ({ label, instances: [host(1, { startTime })] });
   const p = { name: 'a', kind: 'repo', versions: [version('main', '2026-11-11T08:00:00Z'), version('feature', '2026-11-11T09:30:00Z'), version('old', '2026-11-10T09:30:00Z')] };
   assert.equal(primaryVersion(p).label, 'feature');
+});
+
+test('resource totals count each process or container once and stay null without readings', () => {
+  const web = { source: 'docker', containerName: 'web', port: 8080, cpuPercent: 10, memoryBytes: 100 };
+  const instances = [
+    web,
+    { ...web, port: 8443 },
+    host(3000, { pid: 7, cpuPercent: 2.5, memoryBytes: 50 }),
+    host(3001, { pid: 8, cpuPercent: null, memoryBytes: null }),
+  ];
+
+  assert.equal(owners(instances).length, 3);
+  assert.deepEqual({ ...resourceTotals(instances), owners: undefined }, { cpu: 12.5, memory: 150, owners: undefined });
+  assert.deepEqual({ ...resourceTotals([host(3001, { pid: 8 })]), owners: undefined }, { cpu: null, memory: null, owners: undefined });
 });

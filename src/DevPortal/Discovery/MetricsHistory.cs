@@ -34,7 +34,7 @@ public sealed class Ring<T>(int capacity)
 /// <summary>
 /// Recent response times per (port, owner) and recent scan durations. A null sample is a probe that got no HTTP
 /// response: it keeps its slot (a gap in the sparkline) but never counts as a latency. Keyed by owner so a new
-/// process on a reused port starts with a clean history. Reused by DP-7 for CPU and memory.
+/// process on a reused port starts with a clean history. CPU and memory are kept per owner (process or container).
 /// </summary>
 public sealed class MetricsHistory(int capacity = MetricsHistory.DefaultCapacity)
 {
@@ -42,6 +42,7 @@ public sealed class MetricsHistory(int capacity = MetricsHistory.DefaultCapacity
 
     private readonly ConcurrentDictionary<(int Port, string Owner), Ring<double?>> responses = new();
     private readonly Ring<double> scans = new(capacity);
+    private readonly ConcurrentDictionary<string, (Ring<double> Cpu, Ring<long> Memory)> resources = new();
 
     public void RecordResponse(int port, string owner, double? ms) =>
         responses.GetOrAdd((port, owner), _ => new Ring<double?>(capacity)).Add(ms);
@@ -57,5 +58,25 @@ public sealed class MetricsHistory(int capacity = MetricsHistory.DefaultCapacity
     {
         foreach (var key in responses.Keys.Where(k => !live.Contains(k)))
             responses.TryRemove(key, out _);
+    }
+
+    /// <summary>Only real readings are kept: a missing CPU delta (first sample, stale baseline) is not a gap but "not yet".</summary>
+    public void RecordResources(string owner, double? cpuPercent, long? memoryBytes)
+    {
+        var rings = resources.GetOrAdd(owner, _ => (new Ring<double>(capacity), new Ring<long>(capacity)));
+        if (cpuPercent is { } cpu)
+            rings.Cpu.Add(cpu);
+        if (memoryBytes is { } memory)
+            rings.Memory.Add(memory);
+    }
+
+    public IReadOnlyList<double> Cpu(string owner) => resources.TryGetValue(owner, out var rings) ? rings.Cpu.ToList() : [];
+
+    public IReadOnlyList<long> Memory(string owner) => resources.TryGetValue(owner, out var rings) ? rings.Memory.ToList() : [];
+
+    public void RetainResources(IReadOnlySet<string> live)
+    {
+        foreach (var owner in resources.Keys.Where(k => !live.Contains(k)))
+            resources.TryRemove(owner, out _);
     }
 }
