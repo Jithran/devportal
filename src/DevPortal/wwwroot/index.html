@@ -59,10 +59,22 @@
     <span>localhost only · read-only</span>
     <span class="links"><a id="release-notes" rel="noopener noreferrer" target="_blank">Release notes</a> · <a id="repository" rel="noopener noreferrer" target="_blank">GitHub</a></span>
   </footer>
+  <div id="scrim" class="scrim" hidden></div>
+  <aside id="drawer" class="drawer" role="dialog" aria-modal="true" aria-labelledby="drawer-title" tabindex="-1" hidden>
+    <div class="dh">
+      <div class="top">
+        <div id="drawer-head" class="dhead"></div>
+        <button id="drawer-close" type="button" aria-label="Close details">✕</button>
+      </div>
+      <div id="drawer-actions" class="btns" data-slot="actions"></div>
+    </div>
+    <div id="drawer-body" class="db"></div>
+  </aside>
   <script src="stats.js"></script>
   <script src="ports.js"></script>
   <script src="spark.js"></script>
   <script src="attention.js"></script>
+  <script src="drawer.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
