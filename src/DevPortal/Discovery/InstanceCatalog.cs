@@ -122,6 +122,7 @@ public sealed class InstanceCatalog(
     {
         Source = InstanceSource.Docker,
         Kind = ServerKind.Docker,
+        ContainerId = container.Id,
         ContainerName = container.Name,
         Image = container.Image,
         ContainerStatus = container.Status,

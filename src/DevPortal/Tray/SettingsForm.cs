@@ -16,6 +16,7 @@ public sealed class SettingsForm : Form
     private readonly ComboBox theme = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 140 };
     private readonly CheckBox checkUpdates = new() { Text = "Check for updates automatically", AutoSize = true };
     private readonly CheckBox screenshots = new() { Text = "Show page previews (screenshots of local web endpoints)", AutoSize = true };
+    private readonly CheckBox containerActions = new() { Text = "Allow stopping and restarting Docker containers from the page", AutoSize = true };
     private readonly Label errors = new() { AutoSize = true, ForeColor = Color.Firebrick, MaximumSize = new Size(420, 0) };
 
     /// <param name="boundPort">The port the portal holds now, or -1 when it is stopped.</param>
@@ -44,6 +45,7 @@ public sealed class SettingsForm : Form
         theme.SelectedItem = current.Theme.ToString();
         checkUpdates.Checked = current.CheckForUpdates;
         screenshots.Checked = current.ScreenshotsEnabled;
+        containerActions.Checked = current.ContainerActionsEnabled;
 
         var grid = new TableLayoutPanel { ColumnCount = 2, AutoSize = true, Dock = DockStyle.Fill };
         grid.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
@@ -57,6 +59,15 @@ public sealed class SettingsForm : Form
         grid.Controls.Add(new Label
         {
             Text = "Uses Edge or Chrome headless with a throwaway profile, about once a minute. Screenshots stay on this computer and are deleted when you turn this off.",
+            AutoSize = true,
+            ForeColor = SystemColors.GrayText,
+            MaximumSize = new Size(420, 0),
+            Margin = new Padding(20, 0, 3, 6),
+        }, 1, grid.RowCount++);
+        grid.Controls.Add(containerActions, 1, grid.RowCount++);
+        grid.Controls.Add(new Label
+        {
+            Text = "Off by default. Adds Stop and Restart for Docker containers (never host processes), each behind a confirmation and logged. Only this computer's browser can use it.",
             AutoSize = true,
             ForeColor = SystemColors.GrayText,
             MaximumSize = new Size(420, 0),
@@ -91,6 +102,7 @@ public sealed class SettingsForm : Form
             Theme = Enum.Parse<ThemePreference>((string)theme.SelectedItem!),
             CheckForUpdates = checkUpdates.Checked,
             ScreenshotsEnabled = screenshots.Checked,
+            ContainerActionsEnabled = containerActions.Checked,
         };
         var problems = SettingsValidator.Validate(proposed, boundPort, ports);
         if (problems.Count > 0)

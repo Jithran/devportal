@@ -56,6 +56,7 @@
     const osTheme = matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
     document.documentElement.dataset.theme = choice('devportal-theme', config.theme) ?? (config.theme === 'system' ? osTheme : config.theme);
     showSystem.checked = choice('devportal-system', config.showSystemByDefault) ?? config.showSystemByDefault;
+    document.getElementById('mode').textContent = config.containerActionsEnabled ? 'localhost only · container actions on' : 'localhost only · read-only';
     document.getElementById('version').textContent = `v${config.version}`;
     document.getElementById('release-notes').href = `${config.repositoryUrl}/releases/tag/v${config.version}`;
     document.getElementById('repository').href = config.repositoryUrl;
@@ -681,12 +682,75 @@
 
   function closeDrawer() {
     if (drawerKey === null) return;
+    setActionNote(null);
     drawerKey = null;
     drawer.hidden = scrim.hidden = true;
     setBackgroundInert(false);
     if (location.hash) history.replaceState(null, '', location.pathname + location.search);
     [...document.querySelectorAll('[data-trigger]')].find(n => n.dataset.trigger === returnTrigger)?.focus();
     returnTrigger = null;
+  }
+
+  // ---- container actions: shown only while the tray setting is on; the server checks it again on every request
+  const drawerActions = document.getElementById('drawer-actions');
+  const actionNote = document.getElementById('action-note');
+  const confirmDialog = document.getElementById('confirm');
+  const acting = new Map();
+  const VERBS = { stop: ['Stop', 'Stopping', 'stopped'], restart: ['Restart', 'Restarting', 'restarted'] };
+  const REFUSED = { 403: 'the request was refused, reload the page', 404: 'actions are off or the container is gone', 429: 'too many actions, wait a moment', 502: 'Docker did not accept it' };
+
+  function setActionNote(text, bad = false) {
+    actionNote.textContent = text || '';
+    actionNote.classList.toggle('bad', bad);
+  }
+
+  function confirmAction(action, name) {
+    document.getElementById('confirm-title').textContent = `${VERBS[action][0]} container ${name}?`;
+    document.getElementById('confirm-text').textContent = action === 'stop'
+      ? 'The container stops and stays stopped until you start it again.'
+      : 'The container restarts and open connections to it drop.';
+    document.getElementById('confirm-ok').textContent = VERBS[action][0];
+    return new Promise(resolve => {
+      confirmDialog.addEventListener('close', () => resolve(confirmDialog.returnValue === 'ok'), { once: true });
+      confirmDialog.returnValue = '';
+      confirmDialog.showModal();
+    });
+  }
+  document.getElementById('confirm-cancel').addEventListener('click', () => confirmDialog.close('cancel'));
+  document.getElementById('confirm-ok').addEventListener('click', () => confirmDialog.close('ok'));
+
+  async function runAction(container, action) {
+    const { containerId: id, containerName: name } = container;
+    if (acting.has(id) || !(await confirmAction(action, name))) return;
+    acting.set(id, action);
+    setActionNote(null);
+    renderDrawer();
+    try {
+      const response = await fetch(`/api/containers/${id}/${action}`, { method: 'POST', headers: { 'X-DevPortal-Token': config.actionToken } });
+      if (response.ok) setActionNote(`${name} ${VERBS[action][2]}.`);
+      else setActionNote(`Could not ${action} ${name}: ${REFUSED[response.status] || `HTTP ${response.status}`}.`, true);
+    } catch {
+      setActionNote(`Could not ${action} ${name}: DevPortal is not reachable.`, true);
+    }
+    acting.delete(id);
+    await load();
+    renderDrawer();
+  }
+
+  function containerActions(instances) {
+    if (!config.containerActionsEnabled) return [];
+    const seen = new Set();
+    return instances.filter(i => i.containerId && !seen.has(i.containerId) && seen.add(i.containerId)).map(c =>
+      el('div', { class: 'act-row' },
+        el('span', { class: 'act-name', text: c.containerName }),
+        ['restart', 'stop'].map(action => el('button', {
+          type: 'button',
+          class: action === 'stop' ? 'danger' : '',
+          disabled: acting.has(c.containerId),
+          'aria-label': `${VERBS[action][0]} container ${c.containerName}`,
+          text: acting.get(c.containerId) === action ? `${VERBS[action][1]}…` : VERBS[action][0],
+          onclick: () => runAction(c, action),
+        }))));
   }
 
   function ownerFacts(instance) {
@@ -753,6 +817,7 @@
       drawerHead.replaceChildren(
         el('h2', { id: 'drawer-title' }, el('span', { class: `dot ${STATUS_DOT[status]}`, 'aria-hidden': 'true' }), name, badge(tone, STATUS_LABEL[status])),
         el('div', { class: 'dsrc' }, el('span', { class: 'tag', text: project.kind }), project.path ? el('code', { text: project.path }) : null));
+      drawerActions.replaceChildren(...containerActions(instances));
       drawerBody.replaceChildren(
         drawerCharts(project),
         drawerAttention(items),
@@ -760,6 +825,7 @@
         el('div', {}, el('div', { class: 'sect-h', text: 'Process & container details' }), el('div', { class: 'dfacts-list' }, owners(instances).map(ownerFacts))));
     } else {
       drawerHead.replaceChildren(el('h2', { id: 'drawer-title' }, el('span', { class: 'dot off', 'aria-hidden': 'true' }), name, badge('neutral', 'Gone')));
+      drawerActions.replaceChildren();
       drawerBody.replaceChildren(
         el('p', { class: 'muted', text: 'Nothing is listening for this project right now. This panel fills in again if it comes back.' }),
         drawerAttention(items));
@@ -775,7 +841,7 @@
   drawerClose.addEventListener('click', closeDrawer);
   scrim.addEventListener('click', closeDrawer);
   document.addEventListener('keydown', e => {
-    if (drawerKey === null) return;
+    if (drawerKey === null || confirmDialog.open) return;
     if (e.key === 'Escape') { e.preventDefault(); closeDrawer(); return; }
     if (e.key !== 'Tab') return;
     const list = [...drawer.querySelectorAll(FOCUSABLE)];

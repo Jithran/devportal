@@ -21,4 +21,7 @@ public sealed record UserSettings
 
     /// <summary>Off by default: previews start a headless browser and keep screenshots of local pages on disk.</summary>
     public bool ScreenshotsEnabled { get; init; }
+
+    /// <summary>Off by default: lets the page stop or restart Docker containers. Only ever toggled in the tray (D-6), never over HTTP.</summary>
+    public bool ContainerActionsEnabled { get; init; }
 }
