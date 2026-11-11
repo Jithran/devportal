@@ -272,3 +272,12 @@ table.ports { width: 100%; border-collapse: collapse; background: var(--panel); 
 .badge.warn { color: var(--warn); }
 .badge.bad { color: var(--bad); }
 .badge.neutral { color: var(--muted); }
+
+.all-ports th { padding: 0; }
+.all-ports .sort { all: unset; box-sizing: border-box; display: flex; align-items: center; gap: var(--s1); width: 100%; padding: var(--s2) var(--s3); cursor: pointer; font: inherit; text-transform: inherit; letter-spacing: inherit; color: inherit; }
+.all-ports .sort:hover { color: var(--text); }
+.all-ports .sort:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.all-ports th[aria-sort="ascending"] .sort::after { content: "▲"; font-size: 9px; }
+.all-ports th[aria-sort="descending"] .sort::after { content: "▼"; font-size: 9px; }
+.all-ports th[aria-sort="ascending"] .sort, .all-ports th[aria-sort="descending"] .sort { color: var(--text); }
+.all-ports .pname { font-weight: 600; }
