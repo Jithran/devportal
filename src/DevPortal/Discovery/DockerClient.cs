@@ -45,7 +45,7 @@ public sealed class DockerClient : IDisposable
         }
     }
 
-    private static ContainerInfo Parse(JsonElement element)
+    internal static ContainerInfo Parse(JsonElement element)
     {
         var labels = element.TryGetProperty("Labels", out var l) && l.ValueKind == JsonValueKind.Object
             ? l.EnumerateObject().ToDictionary(p => p.Name, p => p.Value.GetString())
@@ -57,8 +57,10 @@ public sealed class DockerClient : IDisposable
                 .Select(port => new PublishedPort(
                     port.GetProperty("PublicPort").GetInt32(),
                     port.GetProperty("PrivatePort").GetInt32(),
-                    port.GetProperty("Type").GetString() ?? "tcp"))
-                .DistinctBy(port => (port.HostPort, port.Protocol))
+                    port.GetProperty("Type").GetString() ?? "tcp",
+                    port.TryGetProperty("IP", out var ip) ? ip.GetString() : null))
+                .GroupBy(port => (port.HostPort, port.Protocol))
+                .Select(group => group.FirstOrDefault(port => ServiceRecognizer.IsAllInterfaces(port.BindAddress)) ?? group.First())
                 .OrderBy(port => port.HostPort)
                 .ToList()
             : [];

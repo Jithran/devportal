@@ -156,6 +156,7 @@
     return el('div', { class: 'endpoint' },
       el('div', { class: 'ep-head' },
         el('span', { class: 'ep-title', text: instance.title || instance.composeService || instance.appName || instance.image || `Port ${instance.port}` }),
+        instance.service.confidence === 'known' ? el('span', { class: 'tag', text: instance.service.label }) : null,
         statusBadge(instance)),
       el('code', { class: 'ep-url', text: instance.url }),
       el('div', { class: 'ep-actions' },
@@ -163,10 +164,49 @@
         el('button', { class: 'btn', type: 'button', text: 'Copy URL', onclick: e => copy(instance.url, e.currentTarget, 'Copy URL') })));
   }
 
-  function otherEndpoint(instance) {
-    return el('li', {},
-      el('span', { class: 'pill neutral', text: String(instance.port) }),
-      el('span', { class: 'muted', text: instance.composeService || instance.containerName || instance.processName || instance.kind }));
+  const serviceName = service => service.confidence === 'guess' ? `${service.label}?` : service.label;
+  const serviceHint = service =>
+    service.confidence === 'guess' ? 'Guessed from the port number only' : service.confidence === 'none' ? 'Not recognised' : '';
+
+  function serviceCell(instance) {
+    const s = instance.service;
+    return el('span', { class: `svc t-${s.category}`, title: serviceHint(s) },
+      el('span', { class: 'mono-ico', 'aria-hidden': 'true', text: s.monogram }),
+      el('span', { class: 'svc-text' },
+        el('span', { class: s.confidence === 'none' ? 'svc-name muted' : 'svc-name', text: serviceName(s) }),
+        s.confidence === 'none' ? el('span', { class: 'kind', text: 'not recognised' }) : null));
+  }
+
+  function ownerCell(instance) {
+    const container = instance.source === 'docker';
+    return el('div', { class: 'owner' },
+      el('span', { class: 'o1', text: container ? instance.containerName : instance.processName || instance.kind }),
+      el('span', { class: 'o2', text: container ? instance.image : instance.pid ? `pid ${instance.pid}` : '' }));
+  }
+
+  function bindCell(instance) {
+    if (!instance.bindAddress) return el('span', { class: 'muted', text: '—' });
+    return instance.exposedToNetwork
+      ? el('span', { class: 'bind lan', title: 'Reachable from your network', text: `${instance.bindAddress} · all interfaces` })
+      : el('span', { class: 'bind', text: instance.bindAddress });
+  }
+
+  function connectionCell(instance) {
+    const text = instance.service.connectionString;
+    return text
+      ? el('button', { class: 'btn copy', type: 'button', title: `Copy connection string: ${text}`, text, onclick: e => copy(text, e.currentTarget, text) })
+      : el('span', { class: 'muted', text: '—' });
+  }
+
+  function portsTable(instances) {
+    return el('table', { class: 'ports' },
+      el('thead', {}, el('tr', {}, ['Port', 'Service', 'Process / container', 'Bound to', 'Connection'].map(h => el('th', { scope: 'col', text: h })))),
+      el('tbody', {}, instances.map(instance => el('tr', {},
+        el('td', {}, el('span', { class: 'portnum', text: String(instance.port) }), ' ', el('span', { class: 'proto', text: 'tcp' })),
+        el('td', {}, serviceCell(instance)),
+        el('td', {}, ownerCell(instance)),
+        el('td', {}, bindCell(instance)),
+        el('td', {}, connectionCell(instance))))));
   }
 
   function versionDetail(version) {
@@ -180,7 +220,7 @@
         version.commit ? el('code', { class: 'muted', text: version.commit }) : null,
         version.path ? el('span', { class: 'path muted', text: version.path }) : null),
       web.length ? el('div', { class: 'endpoints' }, web.map(webCard)) : null,
-      other.length ? el('ul', { class: 'others', 'aria-label': 'Other endpoints' }, other.map(otherEndpoint)) : null,
+      other.length ? el('div', { class: 'other-ports' }, el('div', { class: 'sect-h', text: `Other ports · ${other.length}` }), portsTable(other)) : null,
       !list.length ? el('p', { class: 'muted', text: 'No published ports.' }) : null);
   }
 

@@ -25,7 +25,7 @@ public sealed record GitInfo(
 
 public sealed record ProbeResult(int? StatusCode, string? Title, string? Url, string? Error);
 
-public sealed record PublishedPort(int HostPort, int ContainerPort, string Protocol);
+public sealed record PublishedPort(int HostPort, int ContainerPort, string Protocol, string? BindAddress = null);
 
 public sealed record ContainerInfo(
     string Id,
@@ -62,6 +62,9 @@ public sealed record Instance
     public string? ContainerStatus { get; init; }
     public string? ComposeProject { get; init; }
     public string? ComposeService { get; init; }
+    public ServiceInfo Service { get; init; } = ServiceRecognizer.Unknown;
+    public string? BindAddress { get; init; }
+    public bool ExposedToNetwork { get; init; }
 }
 
 public sealed record VersionGroup(string Label, string? Branch, string? Commit, string? Worktree, string? Path, IReadOnlyList<Instance> Instances);

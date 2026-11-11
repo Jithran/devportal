@@ -241,8 +241,31 @@ a.pill:hover { background: var(--muted-bg); }
 .ep-title { font-weight: 600; overflow-wrap: anywhere; }
 .ep-url { color: var(--muted); overflow-wrap: anywhere; }
 .ep-actions { display: flex; flex-wrap: wrap; gap: var(--s2); }
-.others { list-style: none; margin: var(--s3) 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: var(--s2) var(--s4); }
-.others li { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; }
+.sect-h { margin: var(--s3) 0 var(--s2); font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.other-ports { overflow-x: auto; }
+table.ports { width: 100%; border-collapse: collapse; background: var(--panel); border: 1px solid var(--border); border-radius: var(--r2); }
+.ports th { text-align: left; font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); padding: var(--s2) var(--s3); border-bottom: 1px solid var(--border); background: var(--panel-2); white-space: nowrap; }
+.ports td { padding: var(--s2) var(--s3); border-bottom: 1px solid var(--border); font-size: 13px; vertical-align: middle; }
+.ports tr:last-child td { border-bottom: 0; }
+.ports tbody tr:hover td { background: var(--hover); }
+.portnum { font: 600 13px ui-monospace, Consolas, monospace; }
+.proto { font: 11px ui-monospace, Consolas, monospace; color: var(--muted); }
+.owner { display: flex; flex-direction: column; min-width: 0; max-width: 260px; }
+.owner .o1 { font-size: 12px; overflow-wrap: anywhere; }
+.owner .o2 { font: 11px ui-monospace, Consolas, monospace; color: var(--muted); overflow-wrap: anywhere; }
+.svc { display: inline-flex; align-items: center; gap: var(--s2); min-width: 0; }
+.svc-text { display: flex; flex-direction: column; min-width: 0; }
+.svc-name { font-weight: 600; }
+.kind { font-size: 11px; color: var(--muted); }
+.mono-ico { width: 28px; height: 24px; flex: none; border-radius: 6px; display: grid; place-items: center; font: 700 10px/1 ui-monospace, Consolas, monospace; letter-spacing: -.02em; color: var(--muted); background: var(--muted-bg); }
+.t-web .mono-ico { color: var(--accent); background: var(--accent-bg); }
+.t-database .mono-ico { color: var(--brand); background: color-mix(in srgb, var(--brand) 14%, transparent); }
+.t-cache .mono-ico { color: var(--bad); background: var(--bad-bg); }
+.t-queue .mono-ico, .t-search .mono-ico { color: var(--warn); background: var(--warn-bg); }
+.t-mail .mono-ico { color: var(--link); background: color-mix(in srgb, var(--link) 14%, transparent); }
+.bind { display: inline-block; font: 11px/18px ui-monospace, Consolas, monospace; padding: 0 6px; border-radius: 4px; background: var(--muted-bg); color: var(--muted); }
+.bind.lan { background: var(--warn-bg); color: var(--warn); }
+.btn.copy { font: 11px ui-monospace, Consolas, monospace; max-width: 240px; overflow: hidden; text-overflow: ellipsis; display: inline-block; }
 
 .badge { font-size: 11px; padding: 0 6px; border-radius: 4px; border: 1px solid currentColor; }
 .badge.ok { color: var(--ok); }
