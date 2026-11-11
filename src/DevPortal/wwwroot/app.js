@@ -8,6 +8,7 @@
   const kpis = document.getElementById('kpis');
   const { classify, summarize, projectStatus, primaryVersion } = DevPortalStats;
   const { matchesFilters, flatten, filterRows, sortRows } = DevPortalPorts;
+  const { median, medianSeries, sparkline } = DevPortalSpark;
   // One state object for both tabs, kept in localStorage so a reload keeps it.
   const FILTER_KEY = 'devportal-filters';
   const SORT_KEY = 'devportal-ports-sort';
@@ -165,6 +166,19 @@
       : el('span', props);
   }
 
+  const formatMs = ms => ms < 10 ? ms.toFixed(1) : String(Math.round(ms));
+
+  // Probes run about every ProbeCacheSeconds, so this is a sample per probe, not per request.
+  function responseMetric(instance) {
+    if (instance.responseMs == null) return null;
+    const history = instance.responseHistory || [];
+    const gaps = history.filter(v => v === null).length;
+    const title = `Last probe answered in ${formatMs(instance.responseMs)} ms. ${history.length} recent probes${gaps ? `, ${gaps} without a response (marked red)` : ''}.`;
+    return el('div', { class: 'metric', title },
+      el('span', { class: 'ms' }, el('b', { text: formatMs(instance.responseMs) }), ' ms'),
+      sparkline(history, 90, 22, `Response time over the last ${history.length} probes`));
+  }
+
   function webCard(instance) {
     return el('div', { class: 'endpoint' },
       el('div', { class: 'ep-head' },
@@ -172,6 +186,7 @@
         instance.service.confidence === 'known' ? el('span', { class: 'tag', text: instance.service.label }) : null,
         statusBadge(instance)),
       el('code', { class: 'ep-url', text: instance.url }),
+      responseMetric(instance),
       el('div', { class: 'ep-actions' },
         el('a', { class: 'btn', href: instance.url, target: '_blank', rel: 'noopener noreferrer', text: 'Open' }),
         el('button', { class: 'btn', type: 'button', text: 'Copy URL', onclick: e => copy(instance.url, e.currentTarget, 'Copy URL') })));
@@ -377,12 +392,17 @@
     idle: ['Idle', 'var(--muted)'],
   };
 
-  // The slots stay empty until the data exists (response-time history, scan duration).
+  const P50_TITLE = 'Median of the latest probe of each web endpoint. Probes run about every 30 s, so this is over probes, not requests.';
+
+  // The slots stay empty until two samples exist.
   function renderKpis() {
     const s = summarize(snapshot);
     const [verdict, color] = VERDICTS[s.verdict];
     const webFraction = s.web.total ? s.web.up / s.web.total : 1;
     const down = s.web.total - s.web.up;
+    const webInstances = flatten(snapshot).map(row => row.instance).filter(i => i.statusCode);
+    const webHistories = webInstances.map(i => i.responseHistory || []);
+    const p50 = median(webInstances.map(i => i.responseMs));
     const ageValue = el('span');
     scanAges = [ageValue];
 
@@ -401,8 +421,11 @@
         split([['ok', s.projects.healthy], ['warning', s.projects.warning], ['failing', s.projects.failing]]),
         el('div', { class: 'sub', text: `${s.projects.healthy} healthy · ${s.projects.warning} with warnings · ${s.projects.failing} failing` })),
       tile('Web endpoints up',
-        el('div', { class: 'row' }, value(String(s.web.up), `/ ${s.web.total}`), el('span', { class: 'slot', 'data-slot': 'web-p50' })),
-        el('div', { class: 'sub', text: down ? `${down} returning an error` : 'All responding' })),
+        el('div', { class: 'row' }, value(String(s.web.up), `/ ${s.web.total}`),
+          el('span', { class: 'slot', 'data-slot': 'web-p50', title: P50_TITLE }, sparkline(medianSeries(webHistories), 70, 26, 'Median response time over recent probes'))),
+        el('div', { class: 'sub' },
+          down ? `${down} returning an error` : 'All responding',
+          p50 === null ? null : el('span', { class: 'muted', title: P50_TITLE, text: `p50 ${formatMs(p50)} ms` }))),
       tile('Containers',
         value(String(s.containers), 'running'),
         split([['brand', s.containers]]),
@@ -416,8 +439,9 @@
           badge(s.ports.open ? 'warn' : 'neutral', `${s.ports.open} on 0.0.0.0`),
           badge('neutral', `${s.ports.unknown} unknown`))),
       tile('Last scan',
-        el('div', { class: 'row' }, el('div', { class: 'value' }, ageValue, el('small', { text: ' ago' })), el('span', { class: 'slot', 'data-slot': 'scan-duration' })),
-        el('div', { class: 'sub' }, 'every ', el('strong', { text: `${config.refreshSeconds}s` }))));
+        el('div', { class: 'row' }, el('div', { class: 'value' }, ageValue, el('small', { text: ' ago' })),
+          el('span', { class: 'slot', 'data-slot': 'scan-duration', title: `Scan duration over the last ${(snapshot.scanHistory || []).length} scans` }, sparkline(snapshot.scanHistory || [], 70, 26, 'Scan duration over recent scans'))),
+        el('div', { class: 'sub' }, 'every ', el('strong', { text: `${config.refreshSeconds}s` }), snapshot.scanMs ? ` · took ${Math.round(snapshot.scanMs)} ms` : '')));
 
     document.getElementById('count-projects').textContent = String(snapshot.projects.length);
   }

@@ -12,13 +12,15 @@ public sealed partial class HttpProber : IDisposable
     private readonly HttpClient http;
     private readonly PortalOptions options;
     private readonly TimeProvider time;
+    private readonly MetricsHistory history;
     private readonly ConcurrentDictionary<(string Host, int Port, string Owner), (DateTimeOffset At, ProbeResult Result)> cache = new();
     private readonly ConcurrentDictionary<(string Host, int Port, string Owner), Task<ProbeResult>> inflight = new();
 
-    public HttpProber(IOptions<PortalOptions> options, TimeProvider time)
+    public HttpProber(IOptions<PortalOptions> options, TimeProvider time, MetricsHistory history)
     {
         this.options = options.Value;
         this.time = time;
+        this.history = history;
         var handler = new SocketsHttpHandler
         {
             AllowAutoRedirect = true,
@@ -56,6 +58,7 @@ public sealed partial class HttpProber : IDisposable
             {
                 var result = await ProbeUncachedAsync(k.Host, k.Port, CancellationToken.None);
                 cache[k] = (time.GetUtcNow(), result);
+                history.RecordResponse(k.Port, k.Owner, result.ElapsedMs);
                 return result;
             }
             finally
@@ -68,6 +71,7 @@ public sealed partial class HttpProber : IDisposable
     {
         foreach (var key in cache.Keys.Where(isGone))
             cache.TryRemove(key, out _);
+        history.Retain(cache.Keys.Select(k => (k.Port, k.Owner)).ToHashSet());
     }
 
     private async Task<ProbeResult> ProbeUncachedAsync(string host, int port, CancellationToken cancellationToken)
@@ -85,6 +89,7 @@ public sealed partial class HttpProber : IDisposable
         // HttpClient.Timeout stops at the response headers; the body read needs its own deadline.
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         deadline.CancelAfter(options.ProbeTimeoutMs);
+        var started = time.GetTimestamp();
         try
         {
             using var request = new HttpRequestMessage(HttpMethod.Get, url);
@@ -92,7 +97,9 @@ public sealed partial class HttpProber : IDisposable
             using var response = await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, deadline.Token);
             var title = IsHtml(response) ? await ReadTitleAsync(response, deadline.Token) : null;
             var finalUrl = response.RequestMessage?.RequestUri?.ToString() ?? url;
-            return new ProbeResult((int)response.StatusCode, title, finalUrl, null);
+            // Time to the end of the (capped) body read; only the attempt that answered counts, not a failed http:// before https://.
+            var elapsedMs = Math.Round(time.GetElapsedTime(started).TotalMilliseconds, 1);
+            return new ProbeResult((int)response.StatusCode, title, finalUrl, null, elapsedMs);
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or IOException or OperationCanceledException)
         {
