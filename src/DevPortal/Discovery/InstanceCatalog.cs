@@ -89,6 +89,9 @@ public sealed class InstanceCatalog(
             Title = probe?.Title,
             ProbeError = probe?.Error,
             IsSystem = isSystem,
+            Service = ServiceRecognizer.Recognize(null, process.Name, port),
+            BindAddress = string.Join(", ", addresses.Order()),
+            ExposedToNetwork = addresses.Any(ServiceRecognizer.IsAllInterfaces),
         };
 
         if (isSystem)
@@ -112,6 +115,7 @@ public sealed class InstanceCatalog(
         ComposeService = container.ComposeService,
         StartTime = container.Created,
         UptimeSeconds = (long)(now - container.Created).TotalSeconds,
+        Service = ServiceRecognizer.Recognize(container.Image, null, null),
     };
 
     private IEnumerable<Task<Placed>> BuildContainer(ContainerInfo container, DateTimeOffset now)
@@ -137,6 +141,9 @@ public sealed class InstanceCatalog(
             {
                 Port = port.HostPort,
                 Addresses = [$"{port.HostPort}->{port.ContainerPort}/tcp"],
+                Service = ServiceRecognizer.Recognize(container.Image, null, port.HostPort, port.ContainerPort),
+                BindAddress = port.BindAddress,
+                ExposedToNetwork = ServiceRecognizer.IsAllInterfaces(port.BindAddress),
                 Url = BrowserUrl(probe, "127.0.0.1", port.HostPort),
                 StatusCode = probe.StatusCode,
                 Title = probe.Title,

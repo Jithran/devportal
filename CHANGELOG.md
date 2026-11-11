@@ -7,6 +7,7 @@ and the project uses [Semantic Versioning](https://semver.org/). Release notes f
 
 - **Changed:** the portal page has a new layout: a summary strip (health, projects, web endpoints, containers, listening ports, last scan), tabs for *Projects* and *All ports*, and status and type filters next to search (DP-2). The *All ports* tab is a placeholder for now.
 - **Changed:** the *Projects* tab is now a table with one row per project (status, branch, compose project, endpoint ports coloured by probe result, uptime). Expand a row to see its web endpoints with Open and Copy URL, and its other ports (DP-3).
+- **Added:** the *Other ports* table in an expanded project row names the service behind each non-web port (MariaDB/MySQL, PostgreSQL, Redis/Dragonfly, MongoDB, Kafka, RabbitMQ, Mailpit/SMTP, debuggers and more) from its container image or process name, with a port-number guess marked with a question mark. It shows what the port is bound to, flags listeners that are open to the whole network, and has a button that copies a connection string without credentials (DP-4).
 
 ## v1.0.3 — 2026-10-13
 
