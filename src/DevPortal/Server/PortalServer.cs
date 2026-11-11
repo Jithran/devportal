@@ -147,6 +147,7 @@ public sealed class PortalServer(SettingsStore settings) : IAsyncDisposable
         builder.Services.AddSingleton<GitResolver>();
         builder.Services.AddSingleton<DockerClient>();
         builder.Services.AddSingleton<MetricsHistory>();
+        builder.Services.AddSingleton<ResourceSampler>();
         builder.Services.AddSingleton<HttpProber>();
         builder.Services.AddSingleton<InstanceCatalog>();
 

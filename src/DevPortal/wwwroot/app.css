@@ -245,6 +245,12 @@ a.pill:hover { background: var(--muted-bg); }
 .spark { display: block; overflow: visible; }
 .spark-line { fill: none; stroke: var(--brand); stroke-width: 1.5; stroke-linejoin: round; stroke-linecap: round; }
 circle.spark-line { fill: var(--brand); }
+.spark.cpu .spark-line { stroke: var(--accent); }
+.spark.cpu circle.spark-line { fill: var(--accent); }
+.spark.warn .spark-line { stroke: var(--warn); }
+.spark.warn circle.spark-line { fill: var(--warn); }
+.metric.res { justify-content: flex-start; white-space: nowrap; }
+.metric.res b { min-width: 6ch; text-align: right; }
 .spark-gap { stroke: var(--bad); stroke-width: 1.5; stroke-linecap: round; }
 .ep-actions { display: flex; flex-wrap: wrap; gap: var(--s2); }
 .sect-h { margin: var(--s3) 0 var(--s2); font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }

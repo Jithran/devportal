@@ -45,6 +45,50 @@ public sealed class DockerClient : IDisposable
         }
     }
 
+    /// <summary>One-shot: the engine returns its last reading at once instead of waiting a second for a delta, so CPU is
+    /// computed from two consecutive scans. Null on any failure; a gone container is not worth a log line.</summary>
+    public async Task<ContainerStats?> GetStatsAsync(string id, TimeSpan timeout, CancellationToken cancellationToken)
+    {
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        cts.CancelAfter(timeout);
+        try
+        {
+            await using var stream = await http.GetStreamAsync($"containers/{id}/stats?stream=false&one-shot=true", cts.Token);
+            using var document = await JsonDocument.ParseAsync(stream, cancellationToken: cts.Token);
+            return ParseStats(document.RootElement);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or IOException or TimeoutException or OperationCanceledException or UnauthorizedAccessException or JsonException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>Memory excludes the page cache (inactive_file), as <c>docker stats</c> does: cgroup v2 then v1 naming.</summary>
+    internal static ContainerStats ParseStats(JsonElement root)
+    {
+        CpuCounter? cpu = null;
+        if (root.TryGetProperty("cpu_stats", out var c)
+            && c.TryGetProperty("cpu_usage", out var usage) && usage.TryGetProperty("total_usage", out var total)
+            && c.TryGetProperty("system_cpu_usage", out var system))
+        {
+            var cores = c.TryGetProperty("online_cpus", out var online) && online.GetInt32() > 0
+                ? online.GetInt32()
+                : usage.TryGetProperty("percpu_usage", out var perCpu) && perCpu.ValueKind == JsonValueKind.Array ? Math.Max(1, perCpu.GetArrayLength()) : 1;
+            cpu = new CpuCounter(total.GetDouble(), system.GetDouble(), cores);
+        }
+
+        long? memory = null;
+        if (root.TryGetProperty("memory_stats", out var m) && m.TryGetProperty("usage", out var used))
+        {
+            var cache = m.TryGetProperty("stats", out var s)
+                ? s.TryGetProperty("inactive_file", out var v2) ? v2.GetInt64() : s.TryGetProperty("total_inactive_file", out var v1) ? v1.GetInt64() : 0
+                : 0;
+            memory = Math.Max(0, used.GetInt64() - cache);
+        }
+
+        return new ContainerStats(cpu, memory);
+    }
+
     internal static ContainerInfo Parse(JsonElement element)
     {
         var labels = element.TryGetProperty("Labels", out var l) && l.ValueKind == JsonValueKind.Object

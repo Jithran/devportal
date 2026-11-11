@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { median, medianSeries, sparkShape } = require('../../src/DevPortal/wwwroot/spark.js');
+const { median, medianSeries, sumSeries, sparkShape } = require('../../src/DevPortal/wwwroot/spark.js');
 
 test('median ignores gaps and handles even counts', () => {
   assert.equal(median([4, null, 2, 8]), 4);
@@ -27,4 +27,14 @@ test('a gap splits the line and is reported, not drawn as a latency', () => {
 test('tiny latencies stay near the baseline thanks to the minimum scale', () => {
   const { runs } = sparkShape([1, 2], 70, 26);
   assert.ok(runs[0].every(([, y]) => y > 20));
+});
+
+test('sumSeries adds owners aligned on the newest sample, cut to the shortest history', () => {
+  assert.deepEqual(sumSeries([[1, 2, 3], [10, 20], []]), [12, 23]);
+  assert.deepEqual(sumSeries([[], []]), []);
+});
+
+test('a zero scale floor still draws an all-zero series', () => {
+  const shape = sparkShape([0, 0, 0], 64, 20, 0);
+  assert.equal(shape.runs[0].every(([, y]) => Number.isFinite(y)), true);
 });

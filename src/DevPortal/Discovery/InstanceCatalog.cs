@@ -9,6 +9,7 @@ public sealed class InstanceCatalog(
     DockerClient docker,
     HttpProber prober,
     MetricsHistory history,
+    ResourceSampler resources,
     IOptions<PortalOptions> options,
     TimeProvider time)
 {
@@ -59,7 +60,9 @@ public sealed class InstanceCatalog(
 
         var hostTasks = listeners.Select(group => BuildHostAsync(group.Key.Port, group.Select(l => l.Address).Distinct().ToList(), details[group.Key.Pid], now));
         var dockerTasks = containers.SelectMany(container => BuildContainer(container, now));
-        var placed = await Task.WhenAll(hostTasks.Concat(dockerTasks));
+        var building = hostTasks.Concat(dockerTasks).ToList();
+        var samples = await resources.SampleAsync(details.Values, containers, cancellationToken);
+        var placed = (await Task.WhenAll(building)).Select(p => p with { Instance = WithResources(p, samples) }).ToList();
 
         prober.Forget(key => !placed.Any(p => p.Instance.Port == key.Port));
 
@@ -100,14 +103,16 @@ public sealed class InstanceCatalog(
             ExposedToNetwork = addresses.Any(ServiceRecognizer.IsAllInterfaces),
         };
 
+        var owner = ResourceSampler.ProcessOwner(process.Pid, process.StartTime);
         if (isSystem)
-            return new Placed(new GroupKey(SystemProject, "system", null), new VersionKey(process.Name, null, null, null, process.ExecutablePath), instance);
+            return new Placed(new GroupKey(SystemProject, "system", null), new VersionKey(process.Name, null, null, null, process.ExecutablePath), instance, owner);
         if (repo is null)
-            return new Placed(new GroupKey(OtherProject, "other", null), new VersionKey(process.Name, null, null, null, process.ExecutablePath), instance);
+            return new Placed(new GroupKey(OtherProject, "other", null), new VersionKey(process.Name, null, null, null, process.ExecutablePath), instance, owner);
         return new Placed(
             new GroupKey(repo.RepoName, "repo", repo.MainRoot),
             new VersionKey(repo.Branch ?? repo.Commit ?? "detached", repo.Branch, repo.Commit, repo.WorktreeName, repo.WorktreeRoot),
-            instance);
+            instance,
+            owner);
     }
 
     internal static Instance ContainerTemplate(ContainerInfo container, DateTimeOffset now) => new()
@@ -135,10 +140,11 @@ public sealed class InstanceCatalog(
             : new VersionKey(repo.Branch ?? repo.Commit ?? "detached", repo.Branch, repo.Commit, repo.WorktreeName, repo.WorktreeRoot);
 
         var template = ContainerTemplate(container, now);
+        var owner = ResourceSampler.ContainerOwner(container.Id);
 
         var tcpPorts = container.Ports.Where(p => p.Protocol == "tcp").ToList();
         if (tcpPorts.Count == 0)
-            return [Task.FromResult(new Placed(group, version, template))];
+            return [Task.FromResult(new Placed(group, version, template, owner))];
 
         return tcpPorts.Select(async port =>
         {
@@ -156,13 +162,24 @@ public sealed class InstanceCatalog(
                 ProbeError = probe.Error,
                 ResponseMs = probe.ElapsedMs,
                 ResponseHistory = History(port.HostPort, $"container:{container.Id}"),
-            });
+            }, owner);
         });
     }
 
     /// <summary>A history with no answered probe (databases, dead ports) is just noise, so it is not sent.</summary>
     private IReadOnlyList<double?> History(int port, string owner) =>
         history.Responses(port, owner) is var samples && samples.Any(s => s is not null) ? samples : [];
+
+    private Instance WithResources(Placed placed, IReadOnlyDictionary<string, ResourceSample> samples) =>
+        samples.TryGetValue(placed.Owner, out var sample)
+            ? placed.Instance with
+            {
+                CpuPercent = sample.CpuPercent,
+                MemoryBytes = sample.MemoryBytes,
+                CpuHistory = history.Cpu(placed.Owner),
+                MemoryHistory = history.Memory(placed.Owner),
+            }
+            : placed.Instance;
 
     private GitInfo? ResolveRepo(ProcessDetails process)
     {
@@ -236,5 +253,6 @@ public sealed class InstanceCatalog(
 
     private sealed record VersionKey(string Label, string? Branch, string? Commit, string? Worktree, string? Path);
 
-    private sealed record Placed(GroupKey Group, VersionKey Version, Instance Instance);
+    /// <summary>Owner is the resource key (process with start time, or container) shared by all ports of one owner.</summary>
+    private sealed record Placed(GroupKey Group, VersionKey Version, Instance Instance, string Owner);
 }

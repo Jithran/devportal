@@ -6,9 +6,9 @@
   const dockerError = document.getElementById('docker-error');
   const offline = document.getElementById('offline');
   const kpis = document.getElementById('kpis');
-  const { classify, summarize, projectStatus, primaryVersion } = DevPortalStats;
+  const { classify, summarize, projectStatus, primaryVersion, owners, resourceTotals } = DevPortalStats;
   const { matchesFilters, flatten, filterRows, sortRows } = DevPortalPorts;
-  const { median, medianSeries, sparkline } = DevPortalSpark;
+  const { median, medianSeries, sumSeries, sparkline } = DevPortalSpark;
   // One state object for both tabs, kept in localStorage so a reload keeps it.
   const FILTER_KEY = 'devportal-filters';
   const SORT_KEY = 'devportal-ports-sort';
@@ -179,6 +179,45 @@
       sparkline(history, 90, 22, `Response time over the last ${history.length} probes`));
   }
 
+  // CPU is percent of one core, as docker stats reports it; the mockup turns the line amber above this.
+  const CPU_WARN_PERCENT = 15;
+  const CPU_TITLE = 'Percent of one core (can exceed 100% on several cores), sampled on every scan';
+  const MEMORY_TITLE = 'Working set for processes, memory without page cache for containers';
+  const formatCpu = value => value == null ? '—' : `${value < 10 ? value.toFixed(1) : Math.round(value)}%`;
+  const formatBytes = bytes => {
+    if (bytes == null) return '—';
+    const mb = bytes / 1048576;
+    return mb >= 1024 ? `${(mb / 1024).toFixed(1)} GB` : `${Math.round(mb)} MB`;
+  };
+
+  function cpuMetric(value, history, owner) {
+    const title = value == null ? 'Measuring: CPU needs two consecutive samples' : `${formatCpu(value)} of one core. ${history.length} recent samples.`;
+    return el('div', { class: 'metric res', title },
+      sparkline(history, 64, 20, `CPU of ${owner} over the last ${history.length} samples`, 5, value > CPU_WARN_PERCENT ? 'warn' : 'cpu'),
+      el('b', { text: formatCpu(value) }));
+  }
+
+  function memoryMetric(value, history, owner) {
+    return el('div', { class: 'metric res', title: value == null ? 'No memory reading' : `${formatBytes(value)}. ${history.length} recent samples.` },
+      sparkline(history, 64, 20, `Memory of ${owner} over the last ${history.length} samples`, 0),
+      el('b', { text: formatBytes(value) }));
+  }
+
+  function ownersTable(list) {
+    return el('table', { class: 'ports' },
+      el('thead', {}, el('tr', {},
+        el('th', { scope: 'col', text: 'Process / container' }),
+        el('th', { scope: 'col', title: CPU_TITLE, text: 'CPU' }),
+        el('th', { scope: 'col', title: MEMORY_TITLE, text: 'Memory' }))),
+      el('tbody', {}, list.map(instance => {
+        const name = instance.containerName || instance.processName || `pid ${instance.pid}`;
+        return el('tr', {},
+          el('td', {}, ownerCell(instance)),
+          el('td', {}, cpuMetric(instance.cpuPercent, instance.cpuHistory || [], name)),
+          el('td', {}, memoryMetric(instance.memoryBytes, instance.memoryHistory || [], name)));
+      })));
+  }
+
   function webCard(instance) {
     return el('div', { class: 'endpoint' },
       el('div', { class: 'ep-head' },
@@ -241,6 +280,7 @@
     const list = endpoints(version.instances);
     const web = list.filter(isWeb);
     const other = list.filter(i => !isWeb(i));
+    const processes = owners(version.instances);
     return el('section', { class: 'version' },
       el('h3', {},
         el('span', { class: 'branch', text: version.label }),
@@ -249,6 +289,7 @@
         version.path ? el('span', { class: 'path muted', text: version.path }) : null),
       web.length ? el('div', { class: 'endpoints' }, web.map(webCard)) : null,
       other.length ? el('div', { class: 'other-ports' }, el('div', { class: 'sect-h', text: `Other ports · ${other.length}` }), portsTable(other)) : null,
+      processes.length ? el('div', { class: 'other-ports' }, el('div', { class: 'sect-h', text: `Processes & containers · ${processes.length}` }), ownersTable(processes)) : null,
       !list.length ? el('p', { class: 'muted', text: 'No published ports.' }) : null);
   }
 
@@ -260,6 +301,7 @@
     const firstWeb = endpoints(primary.instances).find(isWeb);
     const compose = [...new Set(instances.map(i => i.composeProject).filter(Boolean))];
     const longest = Math.max(...primary.instances.map(i => i.uptimeSeconds ?? 0));
+    const totals = resourceTotals(instances);
 
     const summary = el('tr', { class: `prow${open ? ' open' : ''}`, 'data-status': status },
       el('td', { class: 'name' },
@@ -277,11 +319,13 @@
         project.versions.length > 1 ? el('span', { class: 'tag', title: project.versions.map(v => v.label).join(', '), text: `+${project.versions.length - 1}` }) : null)),
       el('td', { class: 'muted', text: compose.join(', ') }),
       el('td', {}, el('div', { class: 'pills' }, endpoints(instances).map(pill))),
+      el('td', {}, cpuMetric(totals.cpu, sumSeries(totals.owners.map(i => i.cpuHistory || [])), project.name)),
+      el('td', {}, memoryMetric(totals.memory, sumSeries(totals.owners.map(i => i.memoryHistory || [])), project.name)),
       el('td', { class: 'muted num', text: uptime(longest) }),
       el('td', { class: 'actions' }, firstWeb ? el('a', { class: 'btn', href: firstWeb.url, target: '_blank', rel: 'noopener noreferrer', text: 'Open' }) : null));
 
     const detail = el('tr', { class: 'drow', id: detailId, hidden: !open },
-      el('td', { colSpan: 7 }, project.versions.map(versionDetail)));
+      el('td', { colSpan: 9 }, project.versions.map(versionDetail)));
     return [summary, detail];
   }
 
@@ -348,7 +392,8 @@
 
     root.replaceChildren(...(bodies.length
       ? [el('table', { class: 'projects' },
-          el('thead', {}, el('tr', {}, ['Project', 'Kind', 'Branch', 'Compose', 'Endpoints', 'Uptime', ''].map(h => el('th', { scope: 'col', text: h })))),
+          el('thead', {}, el('tr', {}, [['Project'], ['Kind'], ['Branch'], ['Compose'], ['Endpoints'], ['CPU', CPU_TITLE], ['Memory', MEMORY_TITLE], ['Uptime'], ['']]
+            .map(([text, title]) => el('th', { scope: 'col', text, title })))),
           bodies)]
       : [el('p', { class: 'muted', text: query ? 'No matches.' : 'Nothing is listening.' })]));
     root.setAttribute('aria-busy', 'false');
