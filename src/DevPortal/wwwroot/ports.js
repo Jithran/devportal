@@ -1,5 +1,5 @@
 (() => {
-  const { classify } = typeof module !== 'undefined' ? require('./stats.js') : globalThis.DevPortalStats;
+  const { classify, isOpenBind } = typeof module !== 'undefined' ? require('./stats.js') : globalThis.DevPortalStats;
 
   // Type comes from the recognised service; the HTTP probe wins because a listener that answers HTTP is a web endpoint.
   function typeOf(instance) {
@@ -69,7 +69,18 @@
     return [...rows].sort((a, b) => compare(a, b) || a.instance.port - b.instance.port || (a.instance.pid ?? 0) - (b.instance.pid ?? 0));
   }
 
-  const api = { typeOf, matchesFilters, flatten, filterRows, sortRows, bindRank, COLUMNS };
+  // The listeners nobody owns (group kind 'other') live in their own collapsed section; its header is this one line.
+  const isOtherGroup = project => project.kind === 'other' && project.hasProject === false;
+
+  function otherSummary(instances) {
+    const ports = new Map();
+    for (const i of instances) if (i.port && !ports.has(i.port)) ports.set(i.port, i);
+    const open = [...ports.values()].filter(isOpenBind).length;
+    const count = `${ports.size} ${ports.size === 1 ? 'port' : 'ports'}`;
+    return { ports: ports.size, open, text: `Other processes · ${count}${open ? ` · ${open} on 0.0.0.0` : ''}` };
+  }
+
+  const api = { isOtherGroup, otherSummary, typeOf, matchesFilters, flatten, filterRows, sortRows, bindRank, COLUMNS };
   globalThis.DevPortalPorts = api;
   if (typeof module !== 'undefined') module.exports = api;
 })();

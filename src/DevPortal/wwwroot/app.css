@@ -300,6 +300,11 @@ circle.spark-line { fill: var(--brand); }
 .ep-actions { display: flex; flex-wrap: wrap; gap: var(--s2); }
 .sect-h { margin: var(--s3) 0 var(--s2); font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
 .other-ports { overflow-x: auto; }
+.other-section { margin-top: var(--s4); border-top: 1px solid var(--border); padding-top: var(--s2); }
+.other-section h2 { margin: 0; font-size: 14px; }
+.other-section .toggle .pname { color: var(--muted); }
+.other-section .other-ports { padding: 0 6px var(--s2); }
+.ports tr.flash td { background: var(--hover); }
 table.ports { width: 100%; border-collapse: collapse; background: var(--panel); border: 1px solid var(--border); border-radius: var(--r2); }
 .ports th { text-align: left; font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); padding: var(--s2) var(--s3); border-bottom: 1px solid var(--border); background: var(--panel-2); white-space: nowrap; }
 .ports td { padding: var(--s2) var(--s3); border-bottom: 1px solid var(--border); font-size: 13px; vertical-align: middle; }

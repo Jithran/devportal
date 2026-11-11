@@ -7,13 +7,15 @@
   const offline = document.getElementById('offline');
   const kpis = document.getElementById('kpis');
   const { classify, summarize, projectStatus, primaryVersion, owners, resourceTotals } = DevPortalStats;
-  const { matchesFilters, flatten, filterRows, sortRows } = DevPortalPorts;
+  const { matchesFilters, flatten, filterRows, sortRows, isOtherGroup, otherSummary } = DevPortalPorts;
   const { median, medianSeries, sumSeries, sparkShape, sparkline } = DevPortalSpark;
   const { evaluate, portMix, projectKey: keyOf } = DevPortalAttention;
   const { encodeHash, decodeHash, itemsFor } = DevPortalDrawer;
   // One state object for both tabs, kept in localStorage so a reload keeps it.
   const FILTER_KEY = 'devportal-filters';
   const SORT_KEY = 'devportal-ports-sort';
+  const OTHER_KEY = 'devportal-other-open';
+  let otherOpen = localStorage.getItem(OTHER_KEY) === '1';
   const stored = (key, fallback) => {
     try { return { ...fallback, ...JSON.parse(localStorage.getItem(key)) }; } catch { return fallback; }
   };
@@ -403,6 +405,18 @@
       : el('div', { class: 'card empty', text: all.length ? 'No ports match the current filters.' : 'Nothing is listening.' }));
   }
 
+  // A search is looking for something, so a match must not hide in a collapsed section.
+  function otherSection(instances, searching) {
+    if (!instances.length) return null;
+    const open = otherOpen || searching;
+    return el('section', { id: 'other-processes', class: 'other-section' },
+      el('h2', {}, el('button', {
+        class: 'toggle', type: 'button', 'aria-expanded': String(open), 'aria-controls': 'other-processes-list', 'data-key': 'other-processes',
+        onclick: () => { otherOpen = !otherOpen; localStorage.setItem(OTHER_KEY, otherOpen ? '1' : '0'); render(); },
+      }, el('span', { class: 'chev', 'aria-hidden': 'true', text: '▸' }), el('span', { class: 'pname', text: otherSummary(instances).text }))),
+      el('div', { id: 'other-processes-list', class: 'other-ports', hidden: !open }, portsTable(endpoints(instances))));
+  }
+
   function render() {
     if (!snapshot) return;
     const query = search.value.trim().toLowerCase();
@@ -410,6 +424,7 @@
     renderPorts(query);
     const bodies = [];
 
+    const otherInstances = [];
     for (const project of snapshot.projects) {
       const versions = project.versions
         .map(version => ({
@@ -419,14 +434,16 @@
         }))
         .filter(version => version.instances.length);
       if (!versions.length) continue;
+      if (isOtherGroup(project)) { otherInstances.push(...versions.flatMap(v => v.instances)); continue; }
       bodies.push(el('tbody', {}, projectRows({ ...project, versions }, !!query || expanded.has(projectKey(project)), `detail-${bodies.length}`)));
     }
 
-    root.replaceChildren(...(bodies.length
-      ? [el('table', { class: 'projects' },
+    const other = otherSection(otherInstances, !!query);
+    root.replaceChildren(...(bodies.length || other
+      ? [bodies.length ? el('table', { class: 'projects' },
           el('thead', {}, el('tr', {}, [['Project'], ['Kind'], ['Branch'], ['Compose'], ['Endpoints'], ['CPU', CPU_TITLE], ['Memory', MEMORY_TITLE], ['Uptime'], ['']]
             .map(([text, title]) => el('th', { scope: 'col', text, title })))),
-          bodies)]
+          bodies) : null, other].filter(Boolean)
       : [el('p', { class: 'muted', text: query ? 'No matches.' : 'Nothing is listening.' })]));
     root.setAttribute('aria-busy', 'false');
     if (focus?.key) [...root.querySelectorAll('[data-key]')].find(n => n.dataset.key === focus.key)?.focus();
@@ -521,7 +538,7 @@
           el('span', { class: 'slot', 'data-slot': 'scan-duration', title: `Scan duration over the last ${(snapshot.scanHistory || []).length} scans` }, sparkline(snapshot.scanHistory || [], 70, 26, 'Scan duration over recent scans'))),
         el('div', { class: 'sub' }, 'every ', el('strong', { text: `${config.refreshSeconds}s` }), snapshot.scanMs ? ` · took ${Math.round(snapshot.scanMs)} ms` : '')));
 
-    document.getElementById('count-projects').textContent = String(snapshot.projects.length);
+    document.getElementById('count-projects').textContent = String(snapshot.projects.filter(p => !isOtherGroup(p)).length);
   }
 
   const ALERT_ICONS = {
@@ -544,6 +561,16 @@
     const target = snapshot.projects.find(p => p.hasProject !== false && item.project === p.name && (p.path || null) === (item.projectPath || null));
     if (target) {
       openDrawer(keyOf(target), `rail:${item.key}`);
+    } else if (item.port && snapshot.projects.some(p => isOtherGroup(p) && flatten({ projects: [p] }).some(r => r.instance.port === item.port))) {
+      search.value = '';
+      otherOpen = true;
+      localStorage.setItem(OTHER_KEY, '1');
+      selectTab(tabs[0]);
+      render();
+      const row = [...document.querySelectorAll('#other-processes-list .portnum')].find(n => n.textContent === String(item.port))?.closest('tr');
+      row?.classList.add('flash');
+      row?.scrollIntoView({ block: 'center' });
+      document.querySelector('#other-processes .toggle')?.focus({ preventScroll: true });
     } else if (item.port) {
       search.value = String(item.port);
       selectTab(tabs[1]);
