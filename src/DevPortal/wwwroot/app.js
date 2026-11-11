@@ -4,9 +4,18 @@
   const showSystem = document.getElementById('show-system');
   const updated = document.getElementById('updated');
   const dockerError = document.getElementById('docker-error');
-  const summary = document.getElementById('summary');
   const offline = document.getElementById('offline');
+  const kpis = document.getElementById('kpis');
+  const { classify, summarize } = DevPortalStats;
+  const filter = { status: 'all', type: 'all' };
+  // Each group is one chip row; add a group here and the filter bar and the row filter follow.
+  const FILTERS = [
+    { key: 'status', label: 'Status', options: [['all', 'All'], ['ok', 'Healthy'], ['warning', 'Warnings'], ['failing', 'Failing']], matches: (i, v) => classify(i) === v },
+    { key: 'type', label: 'Type', options: [['all', 'All'], ['web', 'Web'], ['other', 'Other']], matches: (i, v) => !!i.statusCode === (v === 'web') },
+  ];
   let snapshot = null;
+  let refreshError = null;
+  let scanAges = [];
   let config = { refreshSeconds: 5, showSystemByDefault: false, theme: 'system' };
   let timer = null;
   const expanded = new Set();
@@ -48,6 +57,37 @@
     load();
   });
   search.addEventListener('input', render);
+
+  const tabs = [...document.querySelectorAll('[role="tab"]')];
+  function selectTab(tab) {
+    for (const t of tabs) {
+      const selected = t === tab;
+      t.setAttribute('aria-selected', selected);
+      t.tabIndex = selected ? 0 : -1;
+      document.getElementById(t.getAttribute('aria-controls')).hidden = !selected;
+    }
+  }
+  tabs.forEach((tab, index) => {
+    tab.addEventListener('click', () => selectTab(tab));
+    tab.addEventListener('keydown', e => {
+      const step = { ArrowRight: 1, ArrowLeft: -1 }[e.key];
+      if (!step) return;
+      const next = tabs[(index + step + tabs.length) % tabs.length];
+      selectTab(next);
+      next.focus();
+    });
+  });
+
+  const filterBar = document.getElementById('filters');
+  function renderFilters() {
+    filterBar.replaceChildren(...FILTERS.map(group => el('div', { class: 'seg', role: 'group', 'aria-label': group.label },
+      el('span', { class: 'lbl', text: group.label }),
+      group.options.map(([value, text]) => el('button', {
+        class: 'chip', type: 'button', text,
+        'aria-pressed': String(filter[group.key] === value),
+        onclick: () => { filter[group.key] = value; renderFilters(); render(); },
+      })))));
+  }
 
   function el(tag, props = {}, ...children) {
     const node = document.createElement(tag);
@@ -128,7 +168,9 @@
     for (const project of snapshot.projects) {
       const versions = [];
       for (const version of project.versions) {
-        const instances = version.instances.filter(i => !query || haystack(project, version, i).includes(query));
+        const instances = version.instances.filter(i =>
+          (!query || haystack(project, version, i).includes(query))
+          && FILTERS.every(g => filter[g.key] === 'all' || g.matches(i, filter[g.key])));
         if (!instances.length) continue;
         versions.push(el('section', { class: 'version' },
           el('h3', {},
@@ -153,20 +195,98 @@
 
     root.replaceChildren(...(sections.length ? sections : [el('p', { class: 'muted', text: query ? 'No matches.' : 'Nothing is listening.' })]));
     root.setAttribute('aria-busy', 'false');
-    renderSummary();
   }
 
-  function renderSummary() {
-    const instances = snapshot.projects.flatMap(p => p.versions.flatMap(v => v.instances));
-    const projects = snapshot.projects.filter(p => p.kind === 'repo' || p.kind === 'compose').length;
-    const containers = new Set(instances.filter(i => i.source === 'docker').map(i => i.containerName)).size;
-    const count = (n, word) => el('span', {}, el('strong', { text: String(n) }), ` ${word}${n === 1 ? '' : 's'}`);
-    summary.replaceChildren(
-      count(instances.length, 'instance'),
-      count(projects, 'project'),
-      count(containers, 'container'),
-      el('span', {}, el('span', { class: `dot ${snapshot.dockerError ? 'off' : 'on'}` }), snapshot.dockerError ? 'Docker unavailable' : 'Docker connected'));
+  const SVG = 'http://www.w3.org/2000/svg';
+  function svg(tag, attrs, ...children) {
+    const node = document.createElementNS(SVG, tag);
+    for (const [key, value] of Object.entries(attrs)) node.setAttribute(key, value);
+    node.append(...children);
+    return node;
   }
+
+  function ring(fraction, color, label) {
+    const circle = extra => svg('circle', { cx: 18, cy: 18, r: 15, fill: 'none', 'stroke-width': 4, ...extra });
+    return svg('svg', { class: 'ring', viewBox: '0 0 36 36', role: 'img', 'aria-label': label },
+      circle({ stroke: 'var(--panel-2)' }),
+      circle({ stroke: color, 'stroke-linecap': 'round', 'stroke-dasharray': `${fraction * 94.2} 94.2`, transform: 'rotate(-90 18 18)' }),
+      svg('text', { x: 18, y: 22, 'text-anchor': 'middle', 'font-size': 10, 'font-weight': 700, fill: 'var(--text)' }, `${Math.round(fraction * 100)}%`));
+  }
+
+  // The page CSP blocks inline style attributes; setting a property through the style object is allowed.
+  function split(parts) {
+    return el('div', { class: 'split', 'aria-hidden': 'true' }, parts.filter(([, weight]) => weight > 0).map(([className, weight]) => {
+      const node = el('i', { class: className });
+      node.style.flexGrow = weight;
+      return node;
+    }));
+  }
+
+  const badge = (tone, text) => el('span', { class: `badge ${tone}`, text });
+  const tile = (label, ...content) => el('div', { class: 'kpi' }, el('div', { class: 'label', text: label }), content);
+  const value = (main, small) => el('div', { class: 'value' }, main, small ? el('small', { text: ` ${small}` }) : null);
+
+  const VERDICTS = {
+    ok: ['Healthy', 'var(--ok)'],
+    warning: ['Warnings', 'var(--warn)'],
+    failing: ['Failing', 'var(--bad)'],
+    idle: ['Idle', 'var(--muted)'],
+  };
+
+  // The slots stay empty until the data exists (response-time history, scan duration).
+  function renderKpis() {
+    const s = summarize(snapshot);
+    const [verdict, color] = VERDICTS[s.verdict];
+    const webFraction = s.web.total ? s.web.up / s.web.total : 1;
+    const down = s.web.total - s.web.up;
+    const ageValue = el('span');
+    scanAges = [ageValue];
+
+    kpis.replaceChildren(
+      el('div', { class: `kpi health ${s.verdict}` },
+        ring(webFraction, color, `${Math.round(webFraction * 100)}% of web endpoints up`),
+        el('div', {},
+          el('div', { class: 'label', text: 'Health' }),
+          el('div', { class: 'value', text: verdict }),
+          el('div', { class: 'sub' },
+            s.failing ? badge('bad', `${s.failing} failing`) : null,
+            s.warnings ? badge('warn', `${s.warnings} ${s.warnings === 1 ? 'warning' : 'warnings'}`) : null,
+            !s.failing && !s.warnings ? el('span', { text: s.verdict === 'idle' ? 'Nothing is listening' : 'Nothing needs attention' }) : null))),
+      tile('Projects',
+        value(String(s.projects.running), 'running'),
+        split([['ok', s.projects.healthy], ['warning', s.projects.warning], ['failing', s.projects.failing]]),
+        el('div', { class: 'sub', text: `${s.projects.healthy} healthy · ${s.projects.warning} with warnings · ${s.projects.failing} failing` })),
+      tile('Web endpoints up',
+        el('div', { class: 'row' }, value(String(s.web.up), `/ ${s.web.total}`), el('span', { class: 'slot', 'data-slot': 'web-p50' })),
+        el('div', { class: 'sub', text: down ? `${down} returning an error` : 'All responding' })),
+      tile('Containers',
+        value(String(s.containers), 'running'),
+        split([['brand', s.containers]]),
+        el('div', { class: 'sub' },
+          snapshot.dockerError
+            ? [el('span', { class: 'dot warn' }), 'Docker unavailable']
+            : [el('span', { class: 'dot up' }), `${s.projects.compose} compose ${s.projects.compose === 1 ? 'project' : 'projects'}`])),
+      tile('Listening ports',
+        value(String(s.ports.total)),
+        el('div', { class: 'sub' },
+          badge(s.ports.open ? 'warn' : 'neutral', `${s.ports.open} on 0.0.0.0`),
+          badge('neutral', `${s.ports.unknown} unknown`))),
+      tile('Last scan',
+        el('div', { class: 'row' }, el('div', { class: 'value' }, ageValue, el('small', { text: ' ago' })), el('span', { class: 'slot', 'data-slot': 'scan-duration' })),
+        el('div', { class: 'sub' }, 'every ', el('strong', { text: `${config.refreshSeconds}s` }))));
+
+    document.getElementById('count-projects').textContent = String(snapshot.projects.length);
+    document.getElementById('count-ports').textContent = String(s.ports.total);
+  }
+
+  function paintAge() {
+    if (!snapshot) return;
+    const seconds = Math.max(0, Math.floor((Date.now() - Date.parse(snapshot.generatedAt)) / 1000));
+    const age = seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m`;
+    scanAges.forEach(node => { node.textContent = age; });
+    updated.textContent = refreshError ? `Refresh failed: ${refreshError}` : `Scanned ${age} ago · every ${config.refreshSeconds}s`;
+  }
+  setInterval(paintAge, 1000);
 
   async function loadConfig() {
     try {
@@ -184,15 +304,17 @@
       const response = await fetch(`/api/instances?all=${showSystem.checked}`, { cache: 'no-store' });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       snapshot = await response.json();
-      updated.textContent = `Updated ${new Date(snapshot.generatedAt).toLocaleTimeString()}`;
+      refreshError = null;
       dockerError.hidden = !snapshot.dockerError;
       dockerError.textContent = snapshot.dockerError || '';
+      renderKpis();
+      paintAge();
       render();
       // Back after a restart or update: reload so the page runs the assets of the version now serving it.
       if (!offline.hidden) location.reload();
     } catch (error) {
       if (error instanceof TypeError) offline.hidden = false;
-      else updated.textContent = `Refresh failed: ${error.message}`;
+      else { refreshError = error.message; paintAge(); }
     }
   }
 
@@ -206,5 +328,6 @@
   }
 
   document.addEventListener('visibilitychange', () => { if (!document.hidden) tick(); });
+  renderFilters();
   tick();
 })();
