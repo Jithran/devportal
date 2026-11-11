@@ -18,4 +18,7 @@ public sealed record UserSettings
     public bool ShowSystemByDefault { get; init; }
     public ThemePreference Theme { get; init; } = ThemePreference.System;
     public bool CheckForUpdates { get; init; } = true;
+
+    /// <summary>Off by default: previews start a headless browser and keep screenshots of local pages on disk.</summary>
+    public bool ScreenshotsEnabled { get; init; }
 }

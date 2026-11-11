@@ -1,6 +1,7 @@
 using System.Net;
 using System.Text.Json.Serialization;
 using DevPortal.Discovery;
+using DevPortal.Preview;
 using DevPortal.Security;
 using DevPortal.Settings;
 
@@ -150,6 +151,8 @@ public sealed class PortalServer(SettingsStore settings) : IAsyncDisposable
         builder.Services.AddSingleton<ResourceSampler>();
         builder.Services.AddSingleton<HttpProber>();
         builder.Services.AddSingleton<InstanceCatalog>();
+        builder.Services.AddSingleton(new PreviewCache(Path.Combine(Path.GetDirectoryName(settings.FilePath)!, "previews"), TimeProvider.System));
+        builder.Services.AddHostedService<PreviewService>();
 
         var app = builder.Build();
 
@@ -164,13 +167,42 @@ public sealed class PortalServer(SettingsStore settings) : IAsyncDisposable
         app.MapGet("/api/config", (SettingsStore store) =>
         {
             var current = store.Current;
-            return Results.Ok(new PortalConfig(AppInfo.Version, AppInfo.RepositoryUrl, current.RefreshSeconds, current.ShowSystemByDefault, current.Theme));
+            return Results.Ok(new PortalConfig(AppInfo.Version, AppInfo.RepositoryUrl, current.RefreshSeconds, current.ShowSystemByDefault, current.Theme, current.ScreenshotsEnabled));
         });
+
+        // Serves only what the background loop already captured, and only for a port in the last scan: never a capture on request.
+        app.MapGet("/api/preview/{port:int}", (int port, HttpResponse response, SettingsStore store, InstanceCatalog catalog, PreviewCache cache) =>
+            Preview(port, response, PreviewService.Screenshot, "image/png", Previewable(store, catalog), cache));
+        app.MapGet("/api/preview/{port:int}/icon", (int port, HttpResponse response, SettingsStore store, InstanceCatalog catalog, PreviewCache cache) =>
+            Preview(port, response, PreviewService.Icon, "image/x-icon", Previewable(store, catalog), cache));
 
         app.MapGet("/health", () => Results.Ok(new { status = "ok", version = AppInfo.Version }));
 
         return app;
     }
 
-    private sealed record PortalConfig(string Version, string RepositoryUrl, int RefreshSeconds, bool ShowSystemByDefault, ThemePreference Theme);
+    private static Snapshot? Previewable(SettingsStore store, InstanceCatalog catalog) => store.Current.ScreenshotsEnabled ? catalog.Latest : null;
+
+    /// <param name="snapshot">The last scan, or null while previews are off.</param>
+    internal static IResult Preview(int port, HttpResponse response, string kind, string contentType, Snapshot? snapshot, PreviewCache cache)
+    {
+        if (snapshot is null)
+            return Results.NotFound();
+        var target = PreviewService.Targets(snapshot).FirstOrDefault(t => t.Port == port);
+        if (target is null || cache.Find(target.Key, kind) is not { } path)
+            return Results.NotFound();
+        try
+        {
+            var bytes = File.ReadAllBytes(path);
+            // The page asks again with a new query each minute; in between the same image comes from the browser cache.
+            response.Headers.CacheControl = "private, max-age=60";
+            return Results.Bytes(bytes, contentType);
+        }
+        catch (IOException)
+        {
+            return Results.NotFound();
+        }
+    }
+
+    private sealed record PortalConfig(string Version, string RepositoryUrl, int RefreshSeconds, bool ShowSystemByDefault, ThemePreference Theme, bool ScreenshotsEnabled);
 }
