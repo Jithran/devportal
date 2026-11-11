@@ -77,7 +77,7 @@
     return { cpu: total('cpuPercent'), memory: total('memoryBytes'), owners: list };
   }
 
-  const api = { classify, summarize, projectStatus, primaryVersion, owners, resourceTotals };
+  const api = { isOpenBind, classify, summarize, projectStatus, primaryVersion, owners, resourceTotals };
   globalThis.DevPortalStats = api;
   if (typeof module !== 'undefined') module.exports = api;
 })();

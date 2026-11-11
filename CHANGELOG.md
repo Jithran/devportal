@@ -6,6 +6,8 @@ and the project uses [Semantic Versioning](https://semver.org/). Release notes f
 ## [Unreleased]
 - **Fixed:** page previews were plain white for apps that render with JavaScript (Blazor, React). Pages are now captured through the browser's DevTools port once they stop loading, with the same isolation as before; a blank or single-colour capture is discarded, retried once later, and then replaced by favicon and title (DP-12).
 
+- **Changed:** listeners that belong to no project now sit in their own *Other processes* section at the bottom of the Projects tab, collapsed by default behind a one-line summary (ports, and how many listen on 0.0.0.0). The open or closed state is remembered, a search opens it, and a *Needs attention* item for one of those ports opens it and scrolls to the port. *All ports* and the filters are unchanged (DP-13).
+
 - **Added:** optional container actions, off by default (*Settings… → Allow stopping and restarting Docker containers*). The project drawer then shows *Restart* and *Stop* per Docker container (never host processes), each behind a confirmation dialog and logged as an audit line. The server enforces the setting, a same-origin check, a per-run token, the last scan and a rate limit (DP-9).
 
 - **Added:** optional page previews on web endpoint cards, off by default (*Settings… → Show page previews*). A background loop screenshots healthy endpoints on localhost with an installed Edge or Chrome in headless mode, with a throwaway profile and every other host blocked, and keeps small thumbnails on this computer for 10 minutes. Without a screenshot the card shows the favicon and page title. Turning it off deletes the cache (DP-8).

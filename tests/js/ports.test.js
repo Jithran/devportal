@@ -65,3 +65,13 @@ test('sort: status orders ok < warning < failing', () => {
 test('summarize counts Docker ports published on all interfaces as open', () => {
   assert.equal(summarize(snapshot).ports.open, 1);
 });
+
+test('otherSummary counts unique ports and those open to the network', () => {
+  const { otherSummary, isOtherGroup } = require('../../src/DevPortal/wwwroot/ports.js');
+  const listener = (port, addresses) => ({ port, addresses });
+  const s = otherSummary([listener(80, ['0.0.0.0']), listener(80, ['::']), listener(9229, ['127.0.0.1']), listener(5432, ['::']), { addresses: [] }]);
+  assert.deepEqual([s.ports, s.open, s.text], [3, 2, 'Other processes · 3 ports · 2 on 0.0.0.0']);
+  assert.equal(otherSummary([listener(1, ['127.0.0.1'])]).text, 'Other processes · 1 port');
+  assert.ok(isOtherGroup({ kind: 'other', hasProject: false }));
+  assert.ok(!isOtherGroup({ kind: 'compose', hasProject: false }));
+});
