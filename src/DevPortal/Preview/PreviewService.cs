@@ -24,6 +24,8 @@ public sealed class PreviewService(SettingsStore settings, InstanceCatalog catal
     internal static readonly TimeSpan CaptureTimeout = TimeSpan.FromSeconds(10);
     private const int ThumbWidth = 480;
     private const int ThumbHeight = 300;
+    private const int CaptureWidth = 1280;
+    private const int CaptureHeight = 800;
     private const int MaxIconBytes = 64 * 1024;
 
     private static readonly HttpClient Http = new(new SocketsHttpHandler
@@ -39,6 +41,7 @@ public sealed class PreviewService(SettingsStore settings, InstanceCatalog catal
     };
 
     private readonly ConcurrentDictionary<(string Key, string Kind), DateTimeOffset> failures = new();
+    private readonly ConcurrentDictionary<string, int> blanks = new();
     private string? browser;
     private bool browserSearched;
 
@@ -77,7 +80,7 @@ public sealed class PreviewService(SettingsStore settings, InstanceCatalog catal
     /// A throwaway profile (no cookies or logins of the user), and every host except loopback made unreachable:
     /// the dead proxy catches IP literals, the resolver rule catches names. Chrome never proxies loopback itself.
     /// </summary>
-    internal static IReadOnlyList<string> BrowserArguments(string profile, string screenshot, string url) =>
+    internal static IReadOnlyList<string> BrowserArguments(string profile) =>
     [
         "--headless=new",
         $"--user-data-dir={profile}",
@@ -94,10 +97,8 @@ public sealed class PreviewService(SettingsStore settings, InstanceCatalog catal
         "--ignore-certificate-errors",
         "--proxy-server=http://127.0.0.1:9",
         "--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE localhost",
-        "--window-size=1280,800",
-        "--virtual-time-budget=4000",
-        $"--screenshot={screenshot}",
-        url,
+        "--remote-debugging-port=0",
+        "about:blank",
     ];
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -125,6 +126,7 @@ public sealed class PreviewService(SettingsStore settings, InstanceCatalog catal
             {
                 cache.Clear();
                 failures.Clear();
+                blanks.Clear();
                 return;
             }
             if (catalog.Latest is not { } snapshot)
@@ -143,7 +145,8 @@ public sealed class PreviewService(SettingsStore settings, InstanceCatalog catal
                 Record(target, Icon, await FetchIconAsync(target, cancellationToken));
             if (browser is not null)
             {
-                foreach (var target in Due(targets, Screenshot, cache, failures, now))
+                // A page that came out blank twice is shown as favicon + title until its process restarts.
+                foreach (var target in Due(targets, Screenshot, cache, failures, now).Where(t => blanks.GetValueOrDefault(t.Key) < 2))
                     Record(target, Screenshot, await CaptureAsync(browser, target, cancellationToken));
             }
             cache.Trim();
@@ -183,52 +186,86 @@ public sealed class PreviewService(SettingsStore settings, InstanceCatalog catal
     private async Task<bool> CaptureAsync(string executable, PreviewTarget target, CancellationToken cancellationToken)
     {
         var work = Directory.CreateTempSubdirectory("devportal-preview-");
+        Process? process = null;
         try
         {
-            var shot = Path.Combine(work.FullName, "shot.png");
+            var profile = Path.Combine(work.FullName, "profile");
             var start = new ProcessStartInfo(executable) { UseShellExecute = false, CreateNoWindow = true };
-            foreach (var argument in BrowserArguments(Path.Combine(work.FullName, "profile"), shot, target.Url))
+            foreach (var argument in BrowserArguments(profile))
                 start.ArgumentList.Add(argument);
 
             var started = time.GetTimestamp();
-            using var process = Process.Start(start)!;
+            process = Process.Start(start)!;
             using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             deadline.CancelAfter(CaptureTimeout);
+            byte[] png;
             try
             {
-                await process.WaitForExitAsync(deadline.Token);
+                using var page = await DevToolsPage.ConnectAsync(Http, profile, deadline.Token);
+                png = await page.CaptureAsync(target.Url, CaptureWidth, CaptureHeight, deadline.Token);
             }
             catch (OperationCanceledException)
             {
-                process.Kill(entireProcessTree: true);
                 if (cancellationToken.IsCancellationRequested)
                     throw;
                 AppLog.Warn($"Preview of port {target.Port} timed out after {CaptureTimeout.TotalSeconds:0} s; browser killed.");
                 return false;
             }
-
-            if (!File.Exists(shot))
+            catch (Exception ex) when (ex is IOException or InvalidOperationException or HttpRequestException or System.Net.WebSockets.WebSocketException)
+            {
+                AppLog.Warn($"Preview of port {target.Port} failed: {ex.Message}");
                 return false;
-            cache.Store(target.Key, Screenshot, path => Thumbnail(shot, path));
+            }
+
+            using var thumb = Thumbnail(png);
+            if (IsBlank(thumb))
+            {
+                // A stale blank from before this fix must not keep being served either.
+                cache.Remove(target.Key, Screenshot);
+                var count = blanks.AddOrUpdate(target.Key, 1, (_, n) => n + 1);
+                AppLog.Warn($"Preview of port {target.Port} is blank (attempt {count}); " + (count < 2 ? "retrying later." : "showing favicon and title."));
+                return false;
+            }
+            blanks.TryRemove(target.Key, out _);
+            cache.Store(target.Key, Screenshot, path => thumb.Save(path, ImageFormat.Png));
             AppLog.Info($"Preview of port {target.Port} took {time.GetElapsedTime(started).TotalMilliseconds:0} ms");
             return true;
         }
         finally
         {
+            if (process is { HasExited: false })
+                process.Kill(entireProcessTree: true);
+            process?.Dispose();
             await DeleteAsync(work);
         }
     }
 
-    private static void Thumbnail(string source, string destination)
+    private static Bitmap Thumbnail(byte[] png)
     {
-        using var full = new Bitmap(source);
-        using var thumb = new Bitmap(ThumbWidth, ThumbHeight);
-        using (var graphics = Graphics.FromImage(thumb))
+        using var full = new Bitmap(new MemoryStream(png));
+        var thumb = new Bitmap(ThumbWidth, ThumbHeight);
+        using var graphics = Graphics.FromImage(thumb);
+        graphics.InterpolationMode = InterpolationMode.HighQualityBicubic;
+        graphics.DrawImage(full, 0, 0, ThumbWidth, ThumbHeight);
+        return thumb;
+    }
+
+    /// <summary>All-white or otherwise near-uniform: under 1 % of the sampled pixels differ visibly from the first one.</summary>
+    internal static bool IsBlank(Bitmap image)
+    {
+        var reference = image.GetPixel(0, 0);
+        int sampled = 0, different = 0;
+        for (var y = 0; y < image.Height; y += 3)
         {
-            graphics.InterpolationMode = InterpolationMode.HighQualityBicubic;
-            graphics.DrawImage(full, 0, 0, ThumbWidth, ThumbHeight);
+            for (var x = 0; x < image.Width; x += 3)
+            {
+                var pixel = image.GetPixel(x, y);
+                sampled++;
+                if (Math.Abs(pixel.R - reference.R) + Math.Abs(pixel.G - reference.G) + Math.Abs(pixel.B - reference.B) > 24)
+                    different++;
+            }
         }
-        thumb.Save(destination, ImageFormat.Png);
+        return different * 100 < sampled;
     }
 
     private static async Task DeleteAsync(DirectoryInfo work)

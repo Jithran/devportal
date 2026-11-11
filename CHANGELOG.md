@@ -4,6 +4,7 @@ All notable changes to DevPortal are listed here. The format follows [Keep a Cha
 and the project uses [Semantic Versioning](https://semver.org/). Release notes for each version are cut from its section.
 
 ## [Unreleased]
+- **Fixed:** page previews were plain white for apps that render with JavaScript (Blazor, React). Pages are now captured through the browser's DevTools port once they stop loading, with the same isolation as before; a blank or single-colour capture is discarded, retried once later, and then replaced by favicon and title (DP-12).
 
 - **Added:** optional container actions, off by default (*Settings… → Allow stopping and restarting Docker containers*). The project drawer then shows *Restart* and *Stop* per Docker container (never host processes), each behind a confirmation dialog and logged as an audit line. The server enforces the setting, a same-origin check, a per-run token, the last scan and a rate limit (DP-9).
 
