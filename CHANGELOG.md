@@ -6,6 +6,7 @@ and the project uses [Semantic Versioning](https://semver.org/). Release notes f
 ## [Unreleased]
 
 - **Changed:** the portal page has a new layout: a summary strip (health, projects, web endpoints, containers, listening ports, last scan), tabs for *Projects* and *All ports*, and status and type filters next to search (DP-2). The *All ports* tab is a placeholder for now.
+- **Changed:** the *Projects* tab is now a table with one row per project (status, branch, compose project, endpoint ports coloured by probe result, uptime). Expand a row to see its web endpoints with Open and Copy URL, and its other ports (DP-3).
 
 ## v1.0.3 — 2026-10-13
 

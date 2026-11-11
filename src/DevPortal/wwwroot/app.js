@@ -6,7 +6,7 @@
   const dockerError = document.getElementById('docker-error');
   const offline = document.getElementById('offline');
   const kpis = document.getElementById('kpis');
-  const { classify, summarize } = DevPortalStats;
+  const { classify, summarize, projectStatus, primaryVersion } = DevPortalStats;
   const filter = { status: 'all', type: 'all' };
   // Each group is one chip row; add a group here and the filter bar and the row filter follow.
   const FILTERS = [
@@ -18,12 +18,9 @@
   let scanAges = [];
   let config = { refreshSeconds: 5, showSystemByDefault: false, theme: 'system' };
   let timer = null;
+  // Keyed by name + path: the same project name can live in two folders.
   const expanded = new Set();
-
-  function toggleExpanded(name, open) {
-    if (search.value.trim()) return;
-    if (open) expanded.add(name); else expanded.delete(name);
-  }
+  const projectKey = project => `${project.name}\u0000${project.path || ''}`;
 
   // A choice made on the page wins until the default in Settings changes; then the new default applies.
   function choice(key, setting) {
@@ -95,7 +92,7 @@
       if (value === undefined || value === null) continue;
       if (key === 'class') node.className = value;
       else if (key === 'text') node.textContent = value;
-      else if (key.startsWith('data-')) node.setAttribute(key, value);
+      else if (key.startsWith('data-') || key.startsWith('aria-')) node.setAttribute(key, value);
       else node[key] = value;
     }
     for (const child of children.flat(Infinity)) {
@@ -118,14 +115,14 @@
       .filter(Boolean).join(' ').toLowerCase();
   }
 
-  async function copy(text, button) {
+  async function copy(text, button, label = 'Copy') {
     try {
       await navigator.clipboard.writeText(text);
       button.textContent = 'Copied';
     } catch {
       button.textContent = 'Failed';
     }
-    setTimeout(() => { button.textContent = 'Copy'; }, 1200);
+    setTimeout(() => { button.textContent = label; }, 1200);
   }
 
   function statusBadge(instance) {
@@ -133,68 +130,119 @@
       const tone = instance.statusCode < 400 ? 'ok' : instance.statusCode < 500 ? 'warn' : 'bad';
       return el('span', { class: `badge ${tone}`, text: String(instance.statusCode) });
     }
-    if (instance.probeError) return el('span', { class: 'badge muted', text: instance.probeError });
+    if (instance.probeError) return el('span', { class: 'badge neutral', text: instance.probeError });
     return null;
   }
 
-  function row(instance) {
-    const owner = instance.source === 'docker'
-      ? el('span', { title: instance.image, text: instance.containerName })
-      : el('span', { title: instance.commandLine || '', text: `${instance.processName} · ${instance.pid}` });
-    const isWeb = !!instance.statusCode;
-    const actions = instance.url ? [
-      isWeb ? el('a', { class: 'btn', href: instance.url, target: '_blank', rel: 'noopener noreferrer', text: 'Open' }) : null,
-      el('button', { class: 'btn', type: 'button', text: 'Copy', onclick: e => copy(instance.url, e.currentTarget) }),
-    ] : [];
+  const STATUS_LABEL = { running: 'Running', degraded: 'Degraded', stopped: 'Stopped' };
+  const STATUS_DOT = { running: 'up', degraded: 'failing', stopped: 'off' };
+  const pillTone = i => !i.statusCode ? 'neutral' : i.statusCode < 400 ? 'ok' : i.statusCode < 500 ? 'warn' : 'bad';
+  const isWeb = i => !!(i.statusCode && i.url);
 
-    return el('tr', { 'data-kind': instance.kind },
-      el('td', { class: 'port' }, instance.port
-        ? (isWeb ? el('a', { href: instance.url, target: '_blank', rel: 'noopener noreferrer', text: String(instance.port) }) : String(instance.port))
-        : '—'),
-      el('td', {}, el('span', { class: `kind kind-${instance.kind}`, text: instance.composeService || instance.kind })),
-      el('td', { class: 'title' },
-        instance.title || el('span', { class: 'muted', title: 'No <title> in the server-rendered HTML', text: instance.source === 'docker' ? instance.image : instance.appName }),
-        ' ', statusBadge(instance)),
-      el('td', { class: 'muted', title: instance.containerStatus || '' }, uptime(instance.uptimeSeconds)),
-      el('td', { class: 'owner' }, owner),
-      el('td', { class: 'actions' }, actions));
+  function endpoints(instances) {
+    const byPort = new Map();
+    for (const i of instances) if (i.port && !byPort.has(i.port)) byPort.set(i.port, i);
+    return [...byPort.values()].sort((a, b) => a.port - b.port);
+  }
+
+  function pill(instance) {
+    const props = { class: `pill ${pillTone(instance)}`, text: String(instance.port), title: instance.statusCode ? `HTTP ${instance.statusCode}` : instance.probeError || 'Not an HTTP endpoint' };
+    return isWeb(instance)
+      ? el('a', { ...props, href: instance.url, target: '_blank', rel: 'noopener noreferrer' })
+      : el('span', props);
+  }
+
+  function webCard(instance) {
+    return el('div', { class: 'endpoint' },
+      el('div', { class: 'ep-head' },
+        el('span', { class: 'ep-title', text: instance.title || instance.composeService || instance.appName || instance.image || `Port ${instance.port}` }),
+        statusBadge(instance)),
+      el('code', { class: 'ep-url', text: instance.url }),
+      el('div', { class: 'ep-actions' },
+        el('a', { class: 'btn', href: instance.url, target: '_blank', rel: 'noopener noreferrer', text: 'Open' }),
+        el('button', { class: 'btn', type: 'button', text: 'Copy URL', onclick: e => copy(instance.url, e.currentTarget, 'Copy URL') })));
+  }
+
+  function otherEndpoint(instance) {
+    return el('li', {},
+      el('span', { class: 'pill neutral', text: String(instance.port) }),
+      el('span', { class: 'muted', text: instance.composeService || instance.containerName || instance.processName || instance.kind }));
+  }
+
+  function versionDetail(version) {
+    const list = endpoints(version.instances);
+    const web = list.filter(isWeb);
+    const other = list.filter(i => !isWeb(i));
+    return el('section', { class: 'version' },
+      el('h3', {},
+        el('span', { class: 'branch', text: version.label }),
+        version.worktree ? el('span', { class: 'tag', text: `worktree ${version.worktree}` }) : null,
+        version.commit ? el('code', { class: 'muted', text: version.commit }) : null,
+        version.path ? el('span', { class: 'path muted', text: version.path }) : null),
+      web.length ? el('div', { class: 'endpoints' }, web.map(webCard)) : null,
+      other.length ? el('ul', { class: 'others', 'aria-label': 'Other endpoints' }, other.map(otherEndpoint)) : null,
+      !list.length ? el('p', { class: 'muted', text: 'No published ports.' }) : null);
+  }
+
+  function projectRows(project, open, detailId) {
+    const key = projectKey(project);
+    const status = projectStatus(project);
+    const primary = primaryVersion(project);
+    const instances = project.versions.flatMap(v => v.instances);
+    const firstWeb = endpoints(primary.instances).find(isWeb);
+    const compose = [...new Set(instances.map(i => i.composeProject).filter(Boolean))];
+    const longest = Math.max(...primary.instances.map(i => i.uptimeSeconds ?? 0));
+
+    const summary = el('tr', { class: `prow${open ? ' open' : ''}`, 'data-status': status },
+      el('td', { class: 'name' },
+        el('button', {
+          class: 'toggle', type: 'button', 'aria-expanded': String(open), 'aria-controls': detailId, 'data-key': key,
+          onclick: () => { if (expanded.has(key)) expanded.delete(key); else expanded.add(key); render(); },
+        },
+          el('span', { class: 'chev', 'aria-hidden': 'true', text: '▸' }),
+          el('span', { class: `dot ${STATUS_DOT[status]}`, 'aria-hidden': 'true' }),
+          el('span', { class: 'pname', text: project.name }),
+          el('span', { class: 'sr-only', text: STATUS_LABEL[status] }))),
+      el('td', {}, el('span', { class: 'tag', text: project.kind })),
+      el('td', {}, el('div', { class: 'branchcell' },
+        el('span', { class: 'branch', text: primary.label }),
+        project.versions.length > 1 ? el('span', { class: 'tag', title: project.versions.map(v => v.label).join(', '), text: `+${project.versions.length - 1}` }) : null)),
+      el('td', { class: 'muted', text: compose.join(', ') }),
+      el('td', {}, el('div', { class: 'pills' }, endpoints(instances).map(pill))),
+      el('td', { class: 'muted num', text: uptime(longest) }),
+      el('td', { class: 'actions' }, firstWeb ? el('a', { class: 'btn', href: firstWeb.url, target: '_blank', rel: 'noopener noreferrer', text: 'Open' }) : null));
+
+    const detail = el('tr', { class: 'drow', id: detailId, hidden: !open },
+      el('td', { colSpan: 7 }, project.versions.map(versionDetail)));
+    return [summary, detail];
   }
 
   function render() {
     if (!snapshot) return;
     const query = search.value.trim().toLowerCase();
-    const sections = [];
+    const focusedKey = document.activeElement?.dataset?.key;
+    const bodies = [];
 
     for (const project of snapshot.projects) {
-      const versions = [];
-      for (const version of project.versions) {
-        const instances = version.instances.filter(i =>
-          (!query || haystack(project, version, i).includes(query))
-          && FILTERS.every(g => filter[g.key] === 'all' || g.matches(i, filter[g.key])));
-        if (!instances.length) continue;
-        versions.push(el('section', { class: 'version' },
-          el('h3', {},
-            el('span', { class: 'branch', text: version.label }),
-            version.worktree ? el('span', { class: 'tag', text: `worktree ${version.worktree}` }) : null,
-            version.commit ? el('code', { class: 'muted', text: version.commit }) : null,
-            version.path ? el('span', { class: 'path muted', text: version.path }) : null),
-          el('table', {},
-            el('thead', {}, el('tr', {}, ['Port', 'Kind', 'Title', 'Uptime', 'Process', ''].map(h => el('th', { text: h })))),
-            el('tbody', {}, instances.map(row)))));
-      }
+      const versions = project.versions
+        .map(version => ({
+          ...version,
+          instances: version.instances.filter(i =>
+            (!query || haystack(project, version, i).includes(query))
+            && FILTERS.every(g => filter[g.key] === 'all' || g.matches(i, filter[g.key]))),
+        }))
+        .filter(version => version.instances.length);
       if (!versions.length) continue;
-      const heading = el('h2', {}, project.name, el('span', { class: 'tag', text: project.kind }),
-        project.path ? el('span', { class: 'path muted', text: project.path }) : null);
-      const collapsible = project.kind === 'other' || project.kind === 'system';
-      sections.push(el('article', { class: `project project-${project.kind}`, 'data-project': project.name },
-        collapsible
-          ? el('details', { open: !!query || expanded.has(project.name), ontoggle: e => toggleExpanded(project.name, e.currentTarget.open) },
-              el('summary', {}, heading), versions)
-          : [heading, versions]));
+      bodies.push(el('tbody', {}, projectRows({ ...project, versions }, !!query || expanded.has(projectKey(project)), `detail-${bodies.length}`)));
     }
 
-    root.replaceChildren(...(sections.length ? sections : [el('p', { class: 'muted', text: query ? 'No matches.' : 'Nothing is listening.' })]));
+    root.replaceChildren(...(bodies.length
+      ? [el('table', { class: 'projects' },
+          el('thead', {}, el('tr', {}, ['Project', 'Kind', 'Branch', 'Compose', 'Endpoints', 'Uptime', ''].map(h => el('th', { scope: 'col', text: h })))),
+          bodies)]
+      : [el('p', { class: 'muted', text: query ? 'No matches.' : 'Nothing is listening.' })]));
     root.setAttribute('aria-busy', 'false');
+    if (focusedKey) [...root.querySelectorAll('[data-key]')].find(n => n.dataset.key === focusedKey)?.focus();
   }
 
   const SVG = 'http://www.w3.org/2000/svg';

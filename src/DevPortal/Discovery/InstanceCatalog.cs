@@ -101,6 +101,19 @@ public sealed class InstanceCatalog(
             instance);
     }
 
+    internal static Instance ContainerTemplate(ContainerInfo container, DateTimeOffset now) => new()
+    {
+        Source = InstanceSource.Docker,
+        Kind = ServerKind.Docker,
+        ContainerName = container.Name,
+        Image = container.Image,
+        ContainerStatus = container.Status,
+        ComposeProject = container.ComposeProject,
+        ComposeService = container.ComposeService,
+        StartTime = container.Created,
+        UptimeSeconds = (long)(now - container.Created).TotalSeconds,
+    };
+
     private IEnumerable<Task<Placed>> BuildContainer(ContainerInfo container, DateTimeOffset now)
     {
         var repo = git.Resolve(container.ComposeWorkingDir);
@@ -111,17 +124,7 @@ public sealed class InstanceCatalog(
             ? new VersionKey(container.ComposeProject is null ? "containers" : "compose", null, null, null, container.ComposeWorkingDir)
             : new VersionKey(repo.Branch ?? repo.Commit ?? "detached", repo.Branch, repo.Commit, repo.WorktreeName, repo.WorktreeRoot);
 
-        var template = new Instance
-        {
-            Source = InstanceSource.Docker,
-            Kind = ServerKind.Docker,
-            ContainerName = container.Name,
-            Image = container.Image,
-            ContainerStatus = container.Status,
-            ComposeService = container.ComposeService,
-            StartTime = container.Created,
-            UptimeSeconds = (long)(now - container.Created).TotalSeconds,
-        };
+        var template = ContainerTemplate(container, now);
 
         var tcpPorts = container.Ports.Where(p => p.Protocol == "tcp").ToList();
         if (tcpPorts.Count == 0)

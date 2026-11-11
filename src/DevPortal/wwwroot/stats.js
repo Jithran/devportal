@@ -13,6 +13,20 @@
 
   const worst = states => states.includes('failing') ? 'failing' : states.includes('warning') ? 'warning' : 'ok';
 
+  // Rows only exist for things that are listening, so "stopped" means a project with no instance left to show.
+  // Only 5xx degrades a project, for the same reason classify ignores probe errors.
+  function projectStatus(project) {
+    const instances = project.versions.flatMap(v => v.instances);
+    if (!instances.length) return 'stopped';
+    return instances.some(i => classify(i) === 'failing') ? 'degraded' : 'running';
+  }
+
+  // The version that started most recently is the one a worktree-heavy project is "on" right now.
+  function primaryVersion(project) {
+    const started = v => Math.max(0, ...v.instances.map(i => Date.parse(i.startTime) || 0));
+    return project.versions.reduce((best, v) => started(v) > started(best) ? v : best);
+  }
+
   function summarize(snapshot) {
     const instances = snapshot.projects.flatMap(p => p.versions.flatMap(v => v.instances));
     const states = instances.map(classify);
@@ -45,7 +59,7 @@
     };
   }
 
-  const api = { classify, summarize };
+  const api = { classify, summarize, projectStatus, primaryVersion };
   globalThis.DevPortalStats = api;
   if (typeof module !== 'undefined') module.exports = api;
 })();
