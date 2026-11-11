@@ -1,7 +1,8 @@
 (() => {
   const OPEN_BINDS = ['0.0.0.0', '::'];
 
-  const isOpenBind = instance => (instance.addresses || []).some(a => OPEN_BINDS.includes(a));
+  // Docker-published ports carry no host address, so the server's exposedToNetwork flag covers them.
+  const isOpenBind = instance => !!instance.exposedToNetwork || (instance.addresses || []).some(a => OPEN_BINDS.includes(a));
 
   // One rule for "needs a look", shared by the KPI strip and the filter chips (and later the attention rail).
   // Probe errors are not failures: databases answer HTTP with nothing, and a cold first scan times out on busy ports.

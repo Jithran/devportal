@@ -7,12 +7,21 @@
   const offline = document.getElementById('offline');
   const kpis = document.getElementById('kpis');
   const { classify, summarize, projectStatus, primaryVersion } = DevPortalStats;
-  const filter = { status: 'all', type: 'all' };
-  // Each group is one chip row; add a group here and the filter bar and the row filter follow.
+  const { matchesFilters, flatten, filterRows, sortRows } = DevPortalPorts;
+  // One state object for both tabs, kept in localStorage so a reload keeps it.
+  const FILTER_KEY = 'devportal-filters';
+  const SORT_KEY = 'devportal-ports-sort';
+  const stored = (key, fallback) => {
+    try { return { ...fallback, ...JSON.parse(localStorage.getItem(key)) }; } catch { return fallback; }
+  };
+  const filter = stored(FILTER_KEY, { status: 'all', type: 'all' });
+  const sort = stored(SORT_KEY, { key: 'port', direction: 'asc' });
+  // Each group is one chip row; add a group here and the filter bar follows (the predicate lives in ports.js).
   const FILTERS = [
-    { key: 'status', label: 'Status', options: [['all', 'All'], ['ok', 'Healthy'], ['warning', 'Warnings'], ['failing', 'Failing']], matches: (i, v) => classify(i) === v },
-    { key: 'type', label: 'Type', options: [['all', 'All'], ['web', 'Web'], ['other', 'Other']], matches: (i, v) => !!i.statusCode === (v === 'web') },
+    { key: 'status', label: 'Status', options: [['all', 'All'], ['ok', 'Healthy'], ['warning', 'Warnings'], ['failing', 'Failing']] },
+    { key: 'type', label: 'Type', options: [['all', 'All'], ['web', 'Web'], ['database', 'Database'], ['other', 'Other']] },
   ];
+  const portsRoot = document.getElementById('view-ports');
   let snapshot = null;
   let refreshError = null;
   let scanAges = [];
@@ -53,7 +62,11 @@
     remember('devportal-system', showSystem.checked, config.showSystemByDefault);
     load();
   });
-  search.addEventListener('input', render);
+  let searchTimer = null;
+  search.addEventListener('input', () => {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(render, 150);
+  });
 
   const tabs = [...document.querySelectorAll('[role="tab"]')];
   function selectTab(tab) {
@@ -82,7 +95,7 @@
       group.options.map(([value, text]) => el('button', {
         class: 'chip', type: 'button', text,
         'aria-pressed': String(filter[group.key] === value),
-        onclick: () => { filter[group.key] = value; renderFilters(); render(); },
+        onclick: () => { filter[group.key] = value; localStorage.setItem(FILTER_KEY, JSON.stringify(filter)); renderFilters(); render(); },
       })))));
   }
 
@@ -257,10 +270,53 @@
     return [summary, detail];
   }
 
+  const PORT_COLUMNS = [['port', 'Port'], ['service', 'Service'], ['project', 'Project'], ['owner', 'Process / container'], ['bound', 'Bound to'], ['status', 'Status'], ['connect', 'Connect']];
+
+  function statusCell(instance) {
+    const state = classify(instance);
+    const tone = { ok: 'ok', warning: 'warn', failing: 'bad' }[state];
+    return el('span', { class: `badge ${tone}`, text: instance.statusCode ? String(instance.statusCode) : state === 'warning' ? 'Open' : 'Listening' });
+  }
+
+  function projectCell(row) {
+    return row.project === null
+      ? el('span', { class: 'muted', title: 'Not part of a project', text: 'No project' })
+      : el('span', { class: 'pname', title: row.projectPath || '', text: row.project });
+  }
+
+  function renderPorts(query) {
+    const all = flatten(snapshot);
+    const rows = sortRows(filterRows(all, filter, query), sort.key, sort.direction);
+    document.getElementById('count-ports').textContent = String(rows.length);
+    const head = PORT_COLUMNS.map(([key, label]) => el('th', { scope: 'col', 'aria-sort': sort.key === key ? (sort.direction === 'asc' ? 'ascending' : 'descending') : 'none' },
+      el('button', {
+        class: 'sort', type: 'button', text: label, 'data-sort': key,
+        onclick: () => {
+          sort.direction = sort.key === key && sort.direction === 'asc' ? 'desc' : 'asc';
+          sort.key = key;
+          localStorage.setItem(SORT_KEY, JSON.stringify(sort));
+          render();
+        },
+      })));
+    portsRoot.replaceChildren(rows.length
+      ? el('table', { class: 'ports all-ports' },
+          el('thead', {}, el('tr', {}, head)),
+          el('tbody', {}, rows.map(row => el('tr', {},
+            el('td', {}, el('span', { class: 'portnum', text: String(row.instance.port) }), ' ', el('span', { class: 'proto', text: 'tcp' })),
+            el('td', {}, serviceCell(row.instance)),
+            el('td', {}, projectCell(row)),
+            el('td', {}, ownerCell(row.instance)),
+            el('td', {}, bindCell(row.instance)),
+            el('td', {}, statusCell(row.instance)),
+            el('td', {}, connectionCell(row.instance))))))
+      : el('div', { class: 'card empty', text: all.length ? 'No ports match the current filters.' : 'Nothing is listening.' }));
+  }
+
   function render() {
     if (!snapshot) return;
     const query = search.value.trim().toLowerCase();
-    const focusedKey = document.activeElement?.dataset?.key;
+    const focus = document.activeElement?.dataset;
+    renderPorts(query);
     const bodies = [];
 
     for (const project of snapshot.projects) {
@@ -268,8 +324,7 @@
         .map(version => ({
           ...version,
           instances: version.instances.filter(i =>
-            (!query || haystack(project, version, i).includes(query))
-            && FILTERS.every(g => filter[g.key] === 'all' || g.matches(i, filter[g.key]))),
+            (!query || haystack(project, version, i).includes(query)) && matchesFilters(i, filter)),
         }))
         .filter(version => version.instances.length);
       if (!versions.length) continue;
@@ -282,7 +337,8 @@
           bodies)]
       : [el('p', { class: 'muted', text: query ? 'No matches.' : 'Nothing is listening.' })]));
     root.setAttribute('aria-busy', 'false');
-    if (focusedKey) [...root.querySelectorAll('[data-key]')].find(n => n.dataset.key === focusedKey)?.focus();
+    if (focus?.key) [...root.querySelectorAll('[data-key]')].find(n => n.dataset.key === focus.key)?.focus();
+    if (focus?.sort) portsRoot.querySelector(`[data-sort="${focus.sort}"]`)?.focus();
   }
 
   const SVG = 'http://www.w3.org/2000/svg';
@@ -364,7 +420,6 @@
         el('div', { class: 'sub' }, 'every ', el('strong', { text: `${config.refreshSeconds}s` }))));
 
     document.getElementById('count-projects').textContent = String(snapshot.projects.length);
-    document.getElementById('count-ports').textContent = String(s.ports.total);
   }
 
   function paintAge() {

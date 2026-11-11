@@ -69,6 +69,7 @@ public sealed record Instance
 
 public sealed record VersionGroup(string Label, string? Branch, string? Commit, string? Worktree, string? Path, IReadOnlyList<Instance> Instances);
 
-public sealed record ProjectGroup(string Name, string Kind, string? Path, IReadOnlyList<VersionGroup> Versions);
+/// <summary>HasProject is false for groups that only collect leftovers (system, other processes, standalone containers).</summary>
+public sealed record ProjectGroup(string Name, string Kind, string? Path, IReadOnlyList<VersionGroup> Versions, bool HasProject = true);
 
 public sealed record Snapshot(DateTimeOffset GeneratedAt, string? DockerError, IReadOnlyList<ProjectGroup> Projects);

@@ -210,7 +210,8 @@ public sealed class InstanceCatalog(
                         version.Key.Path,
                         version.Select(p => p.Instance).OrderBy(i => i.Port ?? int.MaxValue).ThenBy(i => i.ContainerName).ToList()))
                     .OrderBy(v => v.Worktree is not null).ThenBy(v => v.Label, StringComparer.OrdinalIgnoreCase)
-                    .ToList()))
+                    .ToList(),
+                project.Key.Kind is "repo" or "compose" && project.Key.Name != StandaloneContainers))
             .OrderBy(p => KindOrder(p.Kind)).ThenBy(p => p.Name, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
