@@ -22,6 +22,8 @@
   <div id="docker-error" class="notice" hidden></div>
   <main class="wrap">
     <section id="kpis" class="kpis" aria-label="Summary"></section>
+    <div class="main">
+    <div class="content">
     <div class="toolbar">
       <div class="tabs" role="tablist" aria-label="View">
         <button id="tab-projects" type="button" role="tab" aria-controls="projects" aria-selected="true">Projects <span id="count-projects" class="count"></span></button>
@@ -34,6 +36,23 @@
     <div id="view-ports" role="tabpanel" aria-labelledby="tab-ports" hidden>
       <p class="muted">Loading…</p>
     </div>
+    </div>
+    <aside class="rail" aria-label="Overview">
+      <section class="card" aria-labelledby="attention-h">
+        <h3 id="attention-h">Needs attention <span id="attention-count" class="badge neutral"></span></h3>
+        <ul id="attention" class="alerts"></ul>
+        <div id="attention-foot" class="alerts-foot" hidden></div>
+      </section>
+      <section class="card" aria-labelledby="mix-h">
+        <h3 id="mix-h">Ports by type <span id="mix-total" class="muted"></span></h3>
+        <div id="mix" class="mix"></div>
+      </section>
+      <section class="card" aria-labelledby="rt-h">
+        <h3 id="rt-h">Response time · all endpoints <span id="rt-span" class="muted"></span></h3>
+        <div id="rt" class="chartbox"></div>
+      </section>
+    </aside>
+    </div>
   </main>
   <footer class="foot">
     <span>DevPortal <strong id="version"></strong></span>
@@ -43,6 +62,7 @@
   <script src="stats.js"></script>
   <script src="ports.js"></script>
   <script src="spark.js"></script>
+  <script src="attention.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
