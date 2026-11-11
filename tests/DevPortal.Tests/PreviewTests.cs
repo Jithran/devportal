@@ -112,6 +112,23 @@ public sealed class PreviewTests : IDisposable
         Assert.Equal(expected, found is null ? null : installed.Single(found.EndsWith));
     }
 
+    [Theory]
+    [InlineData(255, 255, 255, false, true)]
+    [InlineData(18, 18, 24, false, true)]
+    [InlineData(255, 255, 255, true, false)]
+    public void Blank_captures_are_detected_but_a_page_with_content_is_not(int r, int g, int b, bool withContent, bool expectedBlank)
+    {
+        using var image = new System.Drawing.Bitmap(480, 300);
+        using (var graphics = System.Drawing.Graphics.FromImage(image))
+        {
+            graphics.Clear(System.Drawing.Color.FromArgb(r, g, b));
+            if (withContent)
+                graphics.FillRectangle(System.Drawing.Brushes.Navy, 0, 0, 240, 300);
+        }
+
+        Assert.Equal(expectedBlank, PreviewService.IsBlank(image));
+    }
+
     public void Dispose() => Directory.Delete(directory, recursive: true);
 
     private void Write(string key, TimeSpan age)

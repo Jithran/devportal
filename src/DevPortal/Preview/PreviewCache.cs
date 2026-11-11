@@ -38,6 +38,8 @@ public sealed class PreviewCache(string directory, TimeProvider time)
         File.Move(temp, path, overwrite: true);
     }
 
+    public void Remove(string key, string kind) => File.Delete(PathFor(key, kind));
+
     /// <summary>Drops files older than <see cref="MaxAge"/>, then the oldest until the count and size caps hold.</summary>
     public void Trim()
     {
