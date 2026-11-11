@@ -23,7 +23,7 @@ public sealed record GitInfo(
     string? Branch,
     string? Commit);
 
-public sealed record ProbeResult(int? StatusCode, string? Title, string? Url, string? Error);
+public sealed record ProbeResult(int? StatusCode, string? Title, string? Url, string? Error, double? ElapsedMs = null);
 
 public sealed record PublishedPort(int HostPort, int ContainerPort, string Protocol, string? BindAddress = null);
 
@@ -56,6 +56,10 @@ public sealed record Instance
     public int? StatusCode { get; init; }
     public string? Title { get; init; }
     public string? ProbeError { get; init; }
+    public double? ResponseMs { get; init; }
+
+    /// <summary>Oldest first; null is a probe that got no HTTP response. Empty when nothing ever answered.</summary>
+    public IReadOnlyList<double?> ResponseHistory { get; init; } = [];
     public bool IsSystem { get; init; }
     public string? ContainerName { get; init; }
     public string? Image { get; init; }
@@ -72,4 +76,9 @@ public sealed record VersionGroup(string Label, string? Branch, string? Commit, 
 /// <summary>HasProject is false for groups that only collect leftovers (system, other processes, standalone containers).</summary>
 public sealed record ProjectGroup(string Name, string Kind, string? Path, IReadOnlyList<VersionGroup> Versions, bool HasProject = true);
 
-public sealed record Snapshot(DateTimeOffset GeneratedAt, string? DockerError, IReadOnlyList<ProjectGroup> Projects);
+public sealed record Snapshot(
+    DateTimeOffset GeneratedAt,
+    string? DockerError,
+    IReadOnlyList<ProjectGroup> Projects,
+    double ScanMs = 0,
+    IReadOnlyList<double>? ScanHistory = null);

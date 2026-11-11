@@ -8,6 +8,7 @@ public sealed class InstanceCatalog(
     GitResolver git,
     DockerClient docker,
     HttpProber prober,
+    MetricsHistory history,
     IOptions<PortalOptions> options,
     TimeProvider time)
 {
@@ -45,6 +46,7 @@ public sealed class InstanceCatalog(
     private async Task<Snapshot> BuildAsync(CancellationToken cancellationToken)
     {
         var now = time.GetUtcNow();
+        var started = time.GetTimestamp();
         var (containers, dockerError) = await docker.ListRunningAsync(cancellationToken);
         var dockerPorts = containers.SelectMany(c => c.Ports).Where(p => p.Protocol == "tcp").Select(p => p.HostPort).ToHashSet();
 
@@ -61,7 +63,9 @@ public sealed class InstanceCatalog(
 
         prober.Forget(key => !placed.Any(p => p.Instance.Port == key.Port));
 
-        return new Snapshot(now, dockerError, Group(placed));
+        var scanMs = Math.Round(time.GetElapsedTime(started).TotalMilliseconds);
+        history.RecordScan(scanMs);
+        return new Snapshot(now, dockerError, Group(placed), scanMs, history.Scans());
     }
 
     private async Task<Placed> BuildHostAsync(int port, IReadOnlyList<string> addresses, ProcessDetails process, DateTimeOffset now)
@@ -88,6 +92,8 @@ public sealed class InstanceCatalog(
             StatusCode = probe?.StatusCode,
             Title = probe?.Title,
             ProbeError = probe?.Error,
+            ResponseMs = probe?.ElapsedMs,
+            ResponseHistory = History(port, $"pid:{process.Pid}"),
             IsSystem = isSystem,
             Service = ServiceRecognizer.Recognize(null, process.Name, port),
             BindAddress = string.Join(", ", addresses.Order()),
@@ -148,9 +154,15 @@ public sealed class InstanceCatalog(
                 StatusCode = probe.StatusCode,
                 Title = probe.Title,
                 ProbeError = probe.Error,
+                ResponseMs = probe.ElapsedMs,
+                ResponseHistory = History(port.HostPort, $"container:{container.Id}"),
             });
         });
     }
+
+    /// <summary>A history with no answered probe (databases, dead ports) is just noise, so it is not sent.</summary>
+    private IReadOnlyList<double?> History(int port, string owner) =>
+        history.Responses(port, owner) is var samples && samples.Any(s => s is not null) ? samples : [];
 
     private GitInfo? ResolveRepo(ProcessDetails process)
     {
