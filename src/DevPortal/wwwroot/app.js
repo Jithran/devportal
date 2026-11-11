@@ -10,6 +10,7 @@
   const { matchesFilters, flatten, filterRows, sortRows } = DevPortalPorts;
   const { median, medianSeries, sumSeries, sparkShape, sparkline } = DevPortalSpark;
   const { evaluate, portMix, projectKey: keyOf } = DevPortalAttention;
+  const { encodeHash, decodeHash, itemsFor } = DevPortalDrawer;
   // One state object for both tabs, kept in localStorage so a reload keeps it.
   const FILTER_KEY = 'devportal-filters';
   const SORT_KEY = 'devportal-ports-sort';
@@ -328,7 +329,9 @@
       el('td', {}, cpuMetric(totals.cpu, sumSeries(totals.owners.map(i => i.cpuHistory || [])), project.name)),
       el('td', {}, memoryMetric(totals.memory, sumSeries(totals.owners.map(i => i.memoryHistory || [])), project.name)),
       el('td', { class: 'muted num', text: uptime(longest) }),
-      el('td', { class: 'actions' }, firstWeb ? el('a', { class: 'btn', href: firstWeb.url, target: '_blank', rel: 'noopener noreferrer', text: 'Open' }) : null));
+      el('td', { class: 'actions' }, el('div', { class: 'ep-actions' },
+        firstWeb ? el('a', { class: 'btn', href: firstWeb.url, target: '_blank', rel: 'noopener noreferrer', text: 'Open' }) : null,
+        el('button', { class: 'btn', type: 'button', text: 'Details', 'aria-label': `Details of ${project.name}`, 'data-trigger': `row:${key}`, onclick: () => openDrawer(key, `row:${key}`) }))));
 
     const detail = el('tr', { class: 'drow', id: detailId, hidden: !open },
       el('td', { colSpan: 9 }, project.versions.map(versionDetail)));
@@ -346,7 +349,8 @@
   function projectCell(row) {
     return row.project === null
       ? el('span', { class: 'muted', title: 'Not part of a project', text: 'No project' })
-      : el('span', { class: 'pname', title: row.projectPath || '', text: row.project });
+      : el('button', { class: 'linkish', type: 'button', title: row.projectPath || '', text: row.project, 'aria-label': `Details of ${row.project}`,
+          'data-trigger': `ports:${row.instance.port}`, onclick: () => openDrawer(`${row.project}\u0000${row.projectPath || ''}`, `ports:${row.instance.port}`) });
   }
 
   function renderPorts(query) {
@@ -405,6 +409,7 @@
     root.setAttribute('aria-busy', 'false');
     if (focus?.key) [...root.querySelectorAll('[data-key]')].find(n => n.dataset.key === focus.key)?.focus();
     if (focus?.sort) portsRoot.querySelector(`[data-sort="${focus.sort}"]`)?.focus();
+    renderDrawer();
   }
 
   const SVG = 'http://www.w3.org/2000/svg';
@@ -516,13 +521,7 @@
     renderFilters();
     const target = snapshot.projects.find(p => p.hasProject !== false && item.project === p.name && (p.path || null) === (item.projectPath || null));
     if (target) {
-      search.value = '';
-      expanded.add(keyOf(target));
-      selectTab(tabs[0]);
-      render();
-      const toggle = [...root.querySelectorAll('[data-key]')].find(n => n.dataset.key === keyOf(target));
-      toggle?.scrollIntoView({ block: 'center' });
-      toggle?.focus();
+      openDrawer(keyOf(target), `rail:${item.key}`);
     } else if (item.port) {
       search.value = String(item.port);
       selectTab(tabs[1]);
@@ -540,7 +539,7 @@
   function attentionItem(item) {
     const isDismissed = dismissed.has(item.key);
     return el('li', { title: STALE_NOTE },
-      el('button', { class: 'go', type: 'button', onclick: () => openItem(item) },
+      el('button', { class: 'go', type: 'button', 'data-trigger': `rail:${item.key}`, onclick: () => openItem(item) },
         alertIcon(item.severity),
         el('span', {},
           el('span', { class: 'sr-only', text: `${SEVERITY_LABEL[item.severity]}: ` }),
@@ -631,6 +630,145 @@
     scanAges.forEach(node => { node.textContent = age; });
     updated.textContent = refreshError ? `Refresh failed: ${refreshError}` : `Scanned ${age} ago · every ${config.refreshSeconds}s`;
   }
+  // ---- detail drawer: one project, rebuilt from the snapshot on every poll
+  const drawer = document.getElementById('drawer');
+  const drawerHead = document.getElementById('drawer-head');
+  const drawerBody = document.getElementById('drawer-body');
+  const drawerClose = document.getElementById('drawer-close');
+  const scrim = document.getElementById('scrim');
+  const FOCUSABLE = 'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])';
+  let drawerKey = null;
+  let returnTrigger = null;
+
+  const findProject = key => snapshot.projects.find(p => p.hasProject !== false && keyOf(p) === key);
+  const setBackgroundInert = value => document.querySelectorAll('body > header, body > main, body > footer, body > .notice').forEach(n => { n.inert = value; });
+
+  function openDrawer(key, trigger = null) {
+    const wasOpen = drawerKey !== null;
+    drawerKey = key;
+    if (!wasOpen) returnTrigger = trigger;
+    drawer.hidden = scrim.hidden = false;
+    setBackgroundInert(true);
+    history.replaceState(null, '', encodeHash(key));
+    if (snapshot) renderDrawer();
+    else {
+      drawerHead.replaceChildren(el('h2', { id: 'drawer-title', text: key.split('\u0000')[0] }));
+      drawerBody.replaceChildren(el('p', { class: 'muted', text: 'Loading…' }));
+    }
+    if (!wasOpen) drawerClose.focus();
+  }
+
+  function closeDrawer() {
+    if (drawerKey === null) return;
+    drawerKey = null;
+    drawer.hidden = scrim.hidden = true;
+    setBackgroundInert(false);
+    if (location.hash) history.replaceState(null, '', location.pathname + location.search);
+    [...document.querySelectorAll('[data-trigger]')].find(n => n.dataset.trigger === returnTrigger)?.focus();
+    returnTrigger = null;
+  }
+
+  function ownerFacts(instance) {
+    const container = instance.source === 'docker';
+    const started = instance.uptimeSeconds == null ? null
+      : new Date(Date.parse(snapshot.generatedAt) - instance.uptimeSeconds * 1000).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' });
+    const rows = (container
+      ? [['Container', instance.containerName], ['Image', instance.image], ['Status', instance.containerStatus],
+         ['Compose', [instance.composeProject, instance.composeService].filter(Boolean).join(' / ')]]
+      : [['Process', instance.processName], ['PID', instance.pid], ['Path', instance.path]])
+      .concat([['Started', started], ['Uptime', uptime(instance.uptimeSeconds)]]);
+    if (instance.commandLine) {
+      rows.push(['Command line', el('div', { class: 'cmd' },
+        el('code', { text: instance.commandLine }),
+        el('button', { class: 'btn', type: 'button', text: 'Copy', onclick: e => copy(instance.commandLine, e.currentTarget) }))]);
+    }
+    return el('section', { class: 'dfacts' },
+      el('h4', { text: instance.containerName || instance.processName || `pid ${instance.pid}` }),
+      el('dl', {}, rows.filter(([, v]) => v !== null && v !== undefined && v !== '')
+        .flatMap(([k, v]) => [el('dt', { text: k }), el('dd', {}, v instanceof Node ? v : String(v))])));
+  }
+
+  function chartBox(label, value, unit, samples, description, minScale, tone) {
+    return el('div', { class: 'mchart' },
+      el('div', { class: 'label', text: label }),
+      el('div', { class: 'v' }, value, unit ? el('small', { class: 'muted', text: ` ${unit}` }) : null),
+      sparkline(samples, 190, 36, description, minScale, tone) || el('span', { class: 'muted', text: 'Collecting…' }));
+  }
+
+  function drawerCharts(project) {
+    const instances = project.versions.flatMap(v => v.instances);
+    const totals = resourceTotals(instances);
+    const web = instances.filter(i => i.statusCode);
+    const p50 = median(web.map(i => i.responseMs));
+    return el('div', { class: 'charts' },
+      chartBox('CPU', formatCpu(totals.cpu), '', sumSeries(totals.owners.map(i => i.cpuHistory || [])), `CPU of ${project.name}`, 5, totals.cpu > CPU_WARN_PERCENT ? 'warn' : 'cpu'),
+      chartBox('Memory', formatBytes(totals.memory), '', sumSeries(totals.owners.map(i => i.memoryHistory || [])), `Memory of ${project.name}`, 0),
+      chartBox('Response p50', p50 === null ? '—' : formatMs(p50), p50 === null ? '' : 'ms', medianSeries(web.map(i => i.responseHistory || [])), `Median response time of ${project.name}`));
+  }
+
+  function drawerAttention(items) {
+    return el('div', {},
+      el('div', { class: 'sect-h', text: `Needs attention · ${items.length}` }),
+      el('ul', { class: 'alerts' }, items.length
+        ? items.map(item => el('li', {}, el('div', { class: 'go' }, alertIcon(item.severity),
+            el('span', {}, el('span', { class: 'sr-only', text: `${SEVERITY_LABEL[item.severity]}: ` }), el('div', { class: 't', text: item.title }), el('div', { class: 'd', text: item.detail })))))
+        : [el('li', { class: 'ok-empty' }, el('span', { class: 'dot up', 'aria-hidden': 'true' }), el('span', { text: 'Nothing needs attention for this project' }))]));
+  }
+
+  // The poll rebuilds the body; scroll position and the focused control (by index) survive it.
+  function renderDrawer() {
+    if (drawerKey === null || !snapshot) return;
+    const project = findProject(drawerKey);
+    const name = drawerKey.split('\u0000')[0];
+    const scroll = drawerBody.scrollTop;
+    const active = document.activeElement;
+    const before = [...drawer.querySelectorAll(FOCUSABLE)].indexOf(active);
+    const items = itemsFor(evaluate(snapshot, seenProjects), drawerKey);
+
+    if (project) {
+      const status = projectStatus(project);
+      const tone = { running: 'ok', degraded: 'warn', stopped: 'neutral' }[status];
+      const instances = project.versions.flatMap(v => v.instances);
+      drawerHead.replaceChildren(
+        el('h2', { id: 'drawer-title' }, el('span', { class: `dot ${STATUS_DOT[status]}`, 'aria-hidden': 'true' }), name, badge(tone, STATUS_LABEL[status])),
+        el('div', { class: 'dsrc' }, el('span', { class: 'tag', text: project.kind }), project.path ? el('code', { text: project.path }) : null));
+      drawerBody.replaceChildren(
+        drawerCharts(project),
+        drawerAttention(items),
+        el('div', {}, project.versions.map(versionDetail)),
+        el('div', {}, el('div', { class: 'sect-h', text: 'Process & container details' }), el('div', { class: 'dfacts-list' }, owners(instances).map(ownerFacts))));
+    } else {
+      drawerHead.replaceChildren(el('h2', { id: 'drawer-title' }, el('span', { class: 'dot off', 'aria-hidden': 'true' }), name, badge('neutral', 'Gone')));
+      drawerBody.replaceChildren(
+        el('p', { class: 'muted', text: 'Nothing is listening for this project right now. This panel fills in again if it comes back.' }),
+        drawerAttention(items));
+    }
+
+    drawerBody.scrollTop = scroll;
+    if (before >= 0 && !active.isConnected) {
+      const list = [...drawer.querySelectorAll(FOCUSABLE)];
+      list[Math.min(before, list.length - 1)]?.focus();
+    }
+  }
+
+  drawerClose.addEventListener('click', closeDrawer);
+  scrim.addEventListener('click', closeDrawer);
+  document.addEventListener('keydown', e => {
+    if (drawerKey === null) return;
+    if (e.key === 'Escape') { e.preventDefault(); closeDrawer(); return; }
+    if (e.key !== 'Tab') return;
+    const list = [...drawer.querySelectorAll(FOCUSABLE)];
+    const first = list[0], last = list[list.length - 1];
+    if (!drawer.contains(document.activeElement) || (e.shiftKey && document.activeElement === first)) { e.preventDefault(); (e.shiftKey ? last : first).focus(); }
+    else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+  });
+  function syncFromHash() {
+    const key = decodeHash(location.hash);
+    if (key !== null && key !== drawerKey) openDrawer(key);
+    else if (key === null) closeDrawer();
+  }
+  addEventListener('hashchange', syncFromHash);
+
   setInterval(paintAge, 1000);
 
   async function loadConfig() {
@@ -675,5 +813,6 @@
 
   document.addEventListener('visibilitychange', () => { if (!document.hidden) tick(); });
   renderFilters();
+  syncFromHash();
   tick();
 })();

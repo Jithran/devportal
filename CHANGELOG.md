@@ -5,6 +5,9 @@ and the project uses [Semantic Versioning](https://semver.org/). Release notes f
 
 ## [Unreleased]
 
+
+- **Added:** a detail drawer for one project, opened with *Details* on a project row, from a *Needs attention* item or from the project name in *All ports*. It shows CPU, memory and response-time charts, what needs attention for that project, its endpoints, ports, processes and containers, plus PID, start time and the masked command line with a copy button. It stays open and current across scans, shows a "Gone" state if the project stops, can be closed with Esc, keeps keyboard focus inside while open, and is linkable through `#project=` so a refresh keeps it open (DP-11).
+
 - **Added:** a right rail on the dashboard with *Needs attention* (failing health checks, databases and other listeners bound to all interfaces, projects that stopped, slow responses, high CPU or memory, Docker unreachable), *Ports by type* and the median response time of all web endpoints. Each item opens its project or port; everything except a failing health check can be dismissed for the session. The health ring and the rail always agree on warnings and failures (DP-10).
 
 - **Changed:** the portal page has a new layout: a summary strip (health, projects, web endpoints, containers, listening ports, last scan), tabs for *Projects* and *All ports*, and status and type filters next to search (DP-2). The *All ports* tab is a placeholder for now.
