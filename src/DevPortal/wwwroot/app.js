@@ -8,7 +8,8 @@
   const kpis = document.getElementById('kpis');
   const { classify, summarize, projectStatus, primaryVersion, owners, resourceTotals } = DevPortalStats;
   const { matchesFilters, flatten, filterRows, sortRows } = DevPortalPorts;
-  const { median, medianSeries, sumSeries, sparkline } = DevPortalSpark;
+  const { median, medianSeries, sumSeries, sparkShape, sparkline } = DevPortalSpark;
+  const { evaluate, portMix, projectKey: keyOf } = DevPortalAttention;
   // One state object for both tabs, kept in localStorage so a reload keeps it.
   const FILTER_KEY = 'devportal-filters';
   const SORT_KEY = 'devportal-ports-sort';
@@ -28,6 +29,11 @@
   let scanAges = [];
   let config = { refreshSeconds: 5, showSystemByDefault: false, theme: 'system' };
   let timer = null;
+  // Dismissals last for this browser tab only; nothing is written to the server (D-4).
+  const DISMISS_KEY = 'devportal-dismissed';
+  const dismissed = new Set(JSON.parse(sessionStorage.getItem(DISMISS_KEY) || '[]'));
+  let showDismissed = false;
+  const seenProjects = new Map();
   // Keyed by name + path: the same project name can live in two folders.
   const expanded = new Set();
   const projectKey = project => `${project.name}\u0000${project.path || ''}`;
@@ -491,6 +497,133 @@
     document.getElementById('count-projects').textContent = String(snapshot.projects.length);
   }
 
+  const ALERT_ICONS = {
+    bad: [['circle', { cx: 8, cy: 8, r: 6 }], ['path', { d: 'm5.8 5.8 4.4 4.4M10.2 5.8l-4.4 4.4' }]],
+    warn: [['path', { d: 'M8 2 14.5 13.5h-13z' }], ['path', { d: 'M8 6.5v3M8 11.5v.1' }]],
+    info: [['circle', { cx: 8, cy: 8, r: 6 }], ['path', { d: 'M8 7.5V11M8 5v.1' }]],
+  };
+  const SEVERITY_LABEL = { bad: 'Failing', warn: 'Warning', info: 'Info' };
+  const STALE_NOTE = 'Probe results are cached for about 30 s, so an item can linger one scan after the cause is gone.';
+
+  function alertIcon(severity) {
+    return svg('svg', { class: `ai ${severity}`, viewBox: '0 0 16 16', 'aria-hidden': 'true' }, ...ALERT_ICONS[severity].map(([tag, attrs]) => svg(tag, attrs)));
+  }
+
+  // Projects live in the Projects tab; listeners without a project only exist in All ports, so the port number is the search.
+  function openItem(item) {
+    filter.status = 'all'; filter.type = 'all';
+    localStorage.setItem(FILTER_KEY, JSON.stringify(filter));
+    renderFilters();
+    const target = snapshot.projects.find(p => p.hasProject !== false && item.project === p.name && (p.path || null) === (item.projectPath || null));
+    if (target) {
+      search.value = '';
+      expanded.add(keyOf(target));
+      selectTab(tabs[0]);
+      render();
+      const toggle = [...root.querySelectorAll('[data-key]')].find(n => n.dataset.key === keyOf(target));
+      toggle?.scrollIntoView({ block: 'center' });
+      toggle?.focus();
+    } else if (item.port) {
+      search.value = String(item.port);
+      selectTab(tabs[1]);
+      render();
+      portsRoot.scrollIntoView({ block: 'start' });
+    }
+  }
+
+  function toggleDismissed(item) {
+    if (dismissed.has(item.key)) dismissed.delete(item.key); else dismissed.add(item.key);
+    sessionStorage.setItem(DISMISS_KEY, JSON.stringify([...dismissed]));
+    renderAttention();
+  }
+
+  function attentionItem(item) {
+    const isDismissed = dismissed.has(item.key);
+    return el('li', { title: STALE_NOTE },
+      el('button', { class: 'go', type: 'button', onclick: () => openItem(item) },
+        alertIcon(item.severity),
+        el('span', {},
+          el('span', { class: 'sr-only', text: `${SEVERITY_LABEL[item.severity]}: ` }),
+          el('div', { class: 't', text: item.title }),
+          el('div', { class: 'd', text: item.detail }))),
+      item.severity === 'bad' ? null : el('button', {
+        class: 'dismiss', type: 'button', text: isDismissed ? 'Restore' : 'Dismiss',
+        'aria-label': `${isDismissed ? 'Restore' : 'Dismiss'}: ${item.title}`,
+        onclick: () => toggleDismissed(item),
+      }));
+  }
+
+  function renderAttention() {
+    const items = evaluate(snapshot, seenProjects);
+    const hidden = items.filter(i => dismissed.has(i.key));
+    const visible = showDismissed ? items : items.filter(i => !dismissed.has(i.key));
+    const open = items.length - hidden.length;
+    const worst = items.filter(i => !dismissed.has(i.key)).find(i => i.severity !== 'info')?.severity;
+    const count = document.getElementById('attention-count');
+    count.textContent = String(open);
+    count.className = `badge ${open ? (worst || 'neutral') : 'ok'}`;
+
+    document.getElementById('attention').replaceChildren(...(visible.length
+      ? visible.map(attentionItem)
+      : [el('li', { class: 'ok-empty' }, el('span', { class: 'dot up', 'aria-hidden': 'true' }), el('span', { text: hidden.length ? 'Nothing else needs attention' : 'Nothing needs attention' }))]));
+
+    const foot = document.getElementById('attention-foot');
+    foot.hidden = !hidden.length;
+    foot.replaceChildren(...(hidden.length
+      ? [`${hidden.length} dismissed for this session · `, el('button', { type: 'button', text: showDismissed ? 'Hide' : 'Show', onclick: () => { showDismissed = !showDismissed; renderAttention(); } })]
+      : []));
+  }
+
+  function renderMix() {
+    const mix = portMix(snapshot);
+    document.getElementById('mix-total').textContent = `${mix.total} listening`;
+    const bar = el('div', { class: 'bar2', role: 'img', 'aria-label': mix.parts.map(p => `${p.label} ${p.count}`).join(', ') },
+      mix.parts.map(part => {
+        const node = el('i', { title: part.label });
+        node.style.flexGrow = part.count;
+        node.style.background = part.color;
+        return node;
+      }));
+    document.getElementById('mix').replaceChildren(
+      mix.total ? bar : el('span', { class: 'muted', text: 'Nothing is listening.' }),
+      el('div', { class: 'legend' }, mix.parts.flatMap(part => {
+        const swatch = el('i', { 'aria-hidden': 'true' });
+        swatch.style.background = part.color;
+        return [el('span', {}, swatch, part.label), el('strong', { class: 'num', text: String(part.count) })];
+      })));
+  }
+
+  const RT_WIDTH = 268, RT_HEIGHT = 56;
+  function renderResponseChart() {
+    const web = flatten(snapshot).map(row => row.instance).filter(i => i.statusCode);
+    const series = medianSeries(web.map(i => i.responseHistory || []));
+    const known = series.filter(v => v !== null);
+    const box = document.getElementById('rt');
+    document.getElementById('rt-span').textContent = `p50 · last ${series.length} probes`;
+    const shape = sparkShape(series, RT_WIDTH, RT_HEIGHT);
+    if (!shape) { box.replaceChildren(el('span', { class: 'muted', text: web.length ? 'Collecting probes…' : 'No web endpoints.' })); return; }
+
+    const delta = known[known.length - 1] - known[0];
+    const chart = svg('svg', { class: 'rt-chart', viewBox: `0 0 ${RT_WIDTH} ${RT_HEIGHT}`, preserveAspectRatio: 'none', role: 'img', 'aria-label': `Median response time over the last ${series.length} probes` });
+    for (const run of shape.runs) {
+      const points = run.map(p => p.join(',')).join(' ');
+      if (run.length > 1) chart.append(svg('polygon', { class: 'rt-area', points: `${run[0][0]},${RT_HEIGHT} ${points} ${run[run.length - 1][0]},${RT_HEIGHT}` }));
+      chart.append(svg('polyline', { class: 'rt-line', points, 'vector-effect': 'non-scaling-stroke' }));
+    }
+    for (const x of shape.gaps) chart.append(svg('line', { class: 'rt-gap', x1: x, x2: x, y1: 3, y2: RT_HEIGHT - 3, 'vector-effect': 'non-scaling-stroke' }));
+    box.replaceChildren(
+      el('div', { class: 'big' }, formatMs(known[known.length - 1]), el('small', { text: 'ms' }),
+        Math.round(delta) === 0 ? null : badge('neutral', `${delta > 0 ? '+' : '−'}${formatMs(Math.abs(delta))} ms`)),
+      chart,
+      el('div', { class: 'muted', text: 'Median of the web endpoints, one point per probe (about every 30 s). The badge is the change over the window.' }));
+  }
+
+  function renderRail() {
+    renderAttention();
+    renderMix();
+    renderResponseChart();
+  }
+
   function paintAge() {
     if (!snapshot) return;
     const seconds = Math.max(0, Math.floor((Date.now() - Date.parse(snapshot.generatedAt)) / 1000));
@@ -520,6 +653,7 @@
       dockerError.hidden = !snapshot.dockerError;
       dockerError.textContent = snapshot.dockerError || '';
       renderKpis();
+      renderRail();
       paintAge();
       render();
       // Back after a restart or update: reload so the page runs the assets of the version now serving it.
