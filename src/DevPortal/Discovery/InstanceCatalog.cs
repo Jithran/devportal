@@ -21,7 +21,10 @@ public sealed class InstanceCatalog(
     private readonly SemaphoreSlim gate = new(1, 1);
     private readonly string windowsDirectory = Environment.GetFolderPath(Environment.SpecialFolder.Windows);
     private readonly int ownPid = Environment.ProcessId;
-    private Snapshot? cached;
+    private volatile Snapshot? cached;
+
+    /// <summary>The last scan, including system listeners; null before the first. Reading it never starts a scan.</summary>
+    public Snapshot? Latest => cached;
 
     public async Task<Snapshot> GetAsync(bool includeSystem, CancellationToken cancellationToken)
     {

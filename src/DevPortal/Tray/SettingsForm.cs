@@ -15,6 +15,7 @@ public sealed class SettingsForm : Form
     private readonly CheckBox showSystem = new() { Text = "Show system listeners by default", AutoSize = true };
     private readonly ComboBox theme = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 140 };
     private readonly CheckBox checkUpdates = new() { Text = "Check for updates automatically", AutoSize = true };
+    private readonly CheckBox screenshots = new() { Text = "Show page previews (screenshots of local web endpoints)", AutoSize = true };
     private readonly Label errors = new() { AutoSize = true, ForeColor = Color.Firebrick, MaximumSize = new Size(420, 0) };
 
     /// <param name="boundPort">The port the portal holds now, or -1 when it is stopped.</param>
@@ -42,6 +43,7 @@ public sealed class SettingsForm : Form
         theme.Items.AddRange(Enum.GetNames<ThemePreference>());
         theme.SelectedItem = current.Theme.ToString();
         checkUpdates.Checked = current.CheckForUpdates;
+        screenshots.Checked = current.ScreenshotsEnabled;
 
         var grid = new TableLayoutPanel { ColumnCount = 2, AutoSize = true, Dock = DockStyle.Fill };
         grid.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
@@ -51,6 +53,15 @@ public sealed class SettingsForm : Form
         AddRow(grid, "Theme", theme, "Default for the page; the page's Theme button still overrides it per browser.");
         grid.Controls.Add(showSystem, 1, grid.RowCount++);
         grid.Controls.Add(checkUpdates, 1, grid.RowCount++);
+        grid.Controls.Add(screenshots, 1, grid.RowCount++);
+        grid.Controls.Add(new Label
+        {
+            Text = "Uses Edge or Chrome headless with a throwaway profile, about once a minute. Screenshots stay on this computer and are deleted when you turn this off.",
+            AutoSize = true,
+            ForeColor = SystemColors.GrayText,
+            MaximumSize = new Size(420, 0),
+            Margin = new Padding(20, 0, 3, 6),
+        }, 1, grid.RowCount++);
         grid.Controls.Add(errors, 0, grid.RowCount);
         grid.SetColumnSpan(errors, 2);
         grid.RowCount++;
@@ -79,6 +90,7 @@ public sealed class SettingsForm : Form
             ShowSystemByDefault = showSystem.Checked,
             Theme = Enum.Parse<ThemePreference>((string)theme.SelectedItem!),
             CheckForUpdates = checkUpdates.Checked,
+            ScreenshotsEnabled = screenshots.Checked,
         };
         var problems = SettingsValidator.Validate(proposed, boundPort, ports);
         if (problems.Count > 0)

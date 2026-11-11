@@ -225,8 +225,29 @@
       })));
   }
 
+  // Image URLs that failed this minute; they render the fallback straight away instead of asking again every refresh.
+  const missingPreviews = new Set();
+  let missingMinute = 0;
+
+  function previewBox(instance) {
+    if (!config.screenshotsEnabled) return null;
+    const minute = Math.floor(Date.now() / 60000);
+    if (minute !== missingMinute) { missingPreviews.clear(); missingMinute = minute; }
+    const title = instance.title || instance.composeService || instance.appName || `Port ${instance.port}`;
+    const shot = `/api/preview/${instance.port}?m=${minute}`;
+    const icon = `/api/preview/${instance.port}/icon?m=${minute}`;
+    const fallback = () => el('div', { class: 'ep-preview fallback' },
+      missingPreviews.has(icon) ? null : el('img', { src: icon, alt: '', width: 32, height: 32, onerror: e => { missingPreviews.add(icon); e.currentTarget.remove(); } }),
+      el('span', { text: title }));
+    if (missingPreviews.has(shot)) return fallback();
+    const box = el('div', { class: 'ep-preview' },
+      el('img', { src: shot, alt: `Preview of ${title}`, width: 480, height: 300, onerror: () => { missingPreviews.add(shot); box.replaceWith(fallback()); } }));
+    return box;
+  }
+
   function webCard(instance) {
     return el('div', { class: 'endpoint' },
+      previewBox(instance),
       el('div', { class: 'ep-head' },
         el('span', { class: 'ep-title', text: instance.title || instance.composeService || instance.appName || instance.image || `Port ${instance.port}` }),
         instance.service.confidence === 'known' ? el('span', { class: 'tag', text: instance.service.label }) : null,

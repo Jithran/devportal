@@ -80,6 +80,7 @@ there is nothing on the portal that can change anything.
 | Theme | System | System, Dark or Light. This is the default for the page. The page's Theme button still overrides it for that browser, until you change this setting again |
 | Show system listeners by default | off | The default for the page's *Show system* checkbox |
 | Check for updates automatically | on | Checks at startup and every 6 hours. It notifies you and never installs anything on its own |
+| Show page previews | off | Screenshots healthy web endpoints on localhost with an installed Edge or Chrome (headless, throwaway profile, no cookies, other hosts blocked), at most four a minute, one at a time. Screenshots and favicons are kept in `%LOCALAPPDATA%\DevPortal\previews` (10 minute refresh, 50 files / 20 MB cap), are never sent anywhere and are deleted when you turn this off. Without a browser it shows the favicon and page title |
 
 Settings are stored per user in `%LOCALAPPDATA%\DevPortal\settings.json`. Velopack updates replace only the
 `current` folder below it, so the file is kept across updates. A file that cannot be read or has values out of
